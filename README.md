@@ -14,6 +14,19 @@ EpochDB uses a tiered architecture reminiscent of CPU caching:
 
 It uniquely handles multi-hop retrieval over time-partitioned data using a **Global Entity Index**.
 
+## Architecture at a Glance
+
+```mermaid
+graph LR
+    A[Agent] -->|Retrieve| B(EpochDB Engine)
+    subgraph "Reasoning Core"
+        B --> C{Semantic Search}
+        B --> D{Relational Expansion}
+    end
+    C & D --> E[Working Memory - RAM]
+    C & D --> F[Historical Archive - Parquet]
+```
+
 ## Installation
 
 ```bash

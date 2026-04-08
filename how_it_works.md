@@ -1,9 +1,60 @@
 # EpochDB: Architecture & Concepts / Arquitetura e Conceitos
 
-This document provides a clear, high-level technical overview of how **EpochDB** operates as an agentic memory engine. 
-*Este documento fornece uma visão técnica clara de alto nível sobre como o **EpochDB** opera como um motor de memória para agentes.*
+# How EpochDB Works
+
+EpochDB is an **Agentic Memory Engine** that treats long-term memory as a tiered hierarchy. It moves beyond simple "flat" vector stores by integrating relational reasoning directly into the persistence layer.
+
+## Visual Architecture
+
+### 1. The Tiered Persistence Lifecycle
+EpochDB manages the lifecycle of "Memory Atoms" through a Hot/Cold tiering strategy, ensuring sub-millisecond access to recent context while Archiving history in space-efficient Parquet files.
+
+```mermaid
+graph TD
+    User([User / Agent Application]) -->|Ingest| Engine[EpochDB Engine]
+    
+    subgraph "Working Memory (Hot Tier - RAM/WAL)"
+        Engine -->|Low Latency| HNSW[HNSW Vector Index]
+        Engine -->|Relational| KG[Active Knowledge Graph]
+        Engine -->|Safety| WAL[ACID Write-Ahead Log]
+    end
+    
+    subgraph "Historical Archive (Cold Tier - Disk)"
+        Engine -->|Force Checkpoint| Parquet[(Immutable Parquet Files)]
+        Parquet <--> GEI[Global Entity Index]
+    end
+    
+    subgraph "State Persistence"
+        Engine -->|Checkpointer| CKPT[(LangGraph Checkpoints)]
+    end
+    
+    HNSW -.-> Archive[Flush to Disk]
+    Archive --> Parquet
+```
+
+### 2. The Reasoning Retrieval Flow
+Retrieval in EpochDB is a multi-stage process that combines semantic relevance with relational context to bridge logical gaps.
+
+```mermaid
+graph LR
+    Query([Agent Query]) --> Search[Semantic Vector Search]
+    Search --> Hits[Top-K Atoms]
+    
+    Hits --> Expand{Relational Expansion?}
+    Expand -- Yes --> Hops[Traverse KG Edges]
+    Hops --> Neighbors[Multi-hop Related Context]
+    
+    Expand -- No --> Hits
+    
+    Neighbors --> Context[Final Context Window]
+    Hits --> Context
+    
+    Context --> LLM([Final LLM Prompt])
+```
 
 ---
+
+## Technical Components
 
 ## 🇺🇸 English: How It Works
 
