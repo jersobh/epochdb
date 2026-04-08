@@ -2,6 +2,11 @@ import os
 import time
 import shutil
 import logging
+import warnings
+
+# Suppress LangChain's Pydantic V1 warning on Python 3.14+
+warnings.filterwarnings("ignore", category=UserWarning, module="langchain_core")
+
 from sentence_transformers import SentenceTransformer
 from epochdb import EpochDB
 

@@ -24,6 +24,22 @@ class EpochDB:
         
         os.makedirs(self.storage_dir, exist_ok=True)
         
+        # Metadata Tracking (Dimensionality Enforcement)
+        self.metadata_file = os.path.join(self.storage_dir, "metadata.json")
+        if os.path.exists(self.metadata_file):
+            with open(self.metadata_file, "r") as f:
+                metadata = json.load(f)
+                stored_dim = metadata.get("dim")
+                if stored_dim and stored_dim != self.dim:
+                    raise ValueError(
+                        f"Dimensionality mismatch! Stored data is {stored_dim}d, "
+                        f"but engine initialized with {self.dim}d. "
+                        f"Please clear '{self.storage_dir}' or use matching dimensions."
+                    )
+        else:
+            with open(self.metadata_file, "w") as f:
+                json.dump({"dim": self.dim, "created_at": time.time()}, f)
+        
         # Concurrency Lock
         self.lock = FileLock(os.path.join(self.storage_dir, ".lock"))
         self.lock.acquire()
@@ -87,9 +103,9 @@ class EpochDB:
         self._check_epoch_expiry()
         return atom.id
 
-    def recall(self, query_emb: np.ndarray, top_k: int = 5) -> List[UnifiedMemoryAtom]:
+    def recall(self, query_emb: np.ndarray, top_k: int = 5, expand_hops: int = 1) -> List[UnifiedMemoryAtom]:
         """Agent queries memory."""
-        results = self.retriever.search(query_emb, top_k=top_k)
+        results = self.retriever.search(query_emb, top_k=top_k, expand_hops=expand_hops)
         self._check_epoch_expiry()
         return results
 

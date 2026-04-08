@@ -51,6 +51,9 @@ class RetrievalManager:
                 for idx in best_idx:
                     if sims[idx] > 0.0:
                         atom = cold_atoms[idx]
+                        if len(atom.embedding) != len(query_emb):
+                            logger.warning(f"Skipping atom {atom.id} due to dim mismatch ({len(atom.embedding)} vs {len(query_emb)})")
+                            continue
                         candidates[atom.id] = atom
 
         # 2. Relational Expansion (Global KG)
@@ -79,10 +82,19 @@ class RetrievalManager:
                                         candidates[n_atom.id] = n_atom
                 expansion_set = new_neighbors
 
-        # 3. Temporal Re-ranking and Update Access
-        results = list(candidates.values())
-        for r in results:
-            r.access_count += 1
-            
-        results.sort(key=lambda x: x.calculate_saliency(), reverse=True)
-        return results[:top_k * 2]
+        # 3. Temporal Re-ranking and Payload Deduplication
+        all_atoms = list(candidates.values())
+        all_atoms.sort(key=lambda x: x.calculate_saliency(), reverse=True)
+
+        unique_results: List[UnifiedMemoryAtom] = []
+        seen_payloads = set()
+        
+        for atom in all_atoms:
+            # We use a simple string representation for deduplication
+            payload_key = str(atom.payload)
+            if payload_key not in seen_payloads:
+                atom.access_count += 1
+                unique_results.append(atom)
+                seen_payloads.add(payload_key)
+
+        return unique_results[:top_k * 2]
