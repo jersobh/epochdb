@@ -5,7 +5,13 @@ import logging
 from sentence_transformers import SentenceTransformer
 from epochdb import EpochDB
 
-from .adapters import EpochDBStoreAdapter, ChromaDBStoreAdapter
+from .adapters import (
+    EpochDBStoreAdapter, 
+    ChromaDBStoreAdapter, 
+    LanceDBStoreAdapter, 
+    FAISSStoreAdapter, 
+    QdrantStoreAdapter
+)
 from .convomem import ConvoMemBenchmark
 from .longmemeval import LongMemEvalBenchmark
 from .locomo import LoCoMoBenchmark
@@ -22,16 +28,21 @@ def run_comparison():
     epoch_dir = "./.epochdb_benchmark_comp"
     if os.path.exists(epoch_dir):
         shutil.rmtree(epoch_dir)
-    
     epoch_db = EpochDB(storage_dir=epoch_dir, dim=dim)
-    epoch_adapter = EpochDBStoreAdapter(epoch_db)
     
+    # Initialize Adapters
+    epoch_adapter = EpochDBStoreAdapter(epoch_db)
     chroma_adapter = ChromaDBStoreAdapter(collection_name="benchmark_comp")
-    chroma_adapter.clear() # Reset chroma
+    lance_adapter = LanceDBStoreAdapter(uri="./.lancedb_benchmark_comp")
+    faiss_adapter = FAISSStoreAdapter(dim=dim)
+    qdrant_adapter = QdrantStoreAdapter(collection_name="benchmark_comp")
 
     stores = [
         ("EpochDB", epoch_adapter),
-        ("ChromaDB", chroma_adapter)
+        ("ChromaDB", chroma_adapter),
+        ("LanceDB", lance_adapter),
+        ("FAISS", faiss_adapter),
+        ("Qdrant", qdrant_adapter)
     ]
 
     benchmarks = [

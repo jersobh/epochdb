@@ -15,6 +15,11 @@ env/
 .epochdb_benchmark/
 *.parquet
 
+# Benchmark assets 
+.lancedb_benchmark_comp
+.epochdb_benchmark_comp
+.lancedb_scalability
+
 # IDE and OS files
 .vscode/
 .idea/

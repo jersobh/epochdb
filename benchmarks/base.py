@@ -17,7 +17,8 @@ class VectorStoreAdapter(ABC):
         pass
 
     @abstractmethod
-    def query(self, query_emb: Any, top_k: int = 5, **kwargs) -> List[Any]:
+    def add_batch(self, payloads: List[Any], embeddings: List[Any]):
+        """Bulk ingestion for scalability testing."""
         pass
     
     @abstractmethod
