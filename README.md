@@ -52,6 +52,9 @@ def store_memory(state):
 > [!TIP]
 > **Tiered Persistence**: Unlike standard vector stores, EpochDB automatically manages the lifecycle of these memories, flushing them to immutable **Parquet files** (Cold Tier) while keeping the most relevant atoms in **RAM** (Hot Tier).
 
+> [!TIP]
+> **Native LangGraph Checkpointer**: EpochDB now includes a built-in checkpointer. You can persist your entire graph state (thread context) directly in the same EpochDB storage directory using `EpochDBCheckpointer(db)`.
+
 ## Performance & Comparison
 
 EpochDB is engineered specifically for **Agentic workflows** where logical continuity across long horizons is critical. In side-by-side benchmarks against industry standards, EpochDB remains the only local engine capable of complex multi-hop reasoning.

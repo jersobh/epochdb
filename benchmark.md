@@ -10,7 +10,7 @@ It leverages `gemini-embedding-2-preview` (detecting native 3072 dimensions) for
 python example_langgraph.py
 Initializing EpochAgent with Tiered Memory...
 Detected 3072 dimensions from Gemini.
-Compiling Agent Graph...
+Compiling Agent Graph with Persistent Checkpointer...
 
 ================ SESSION 1: Establishing Reality =================
 
@@ -21,7 +21,7 @@ Compiling Agent Graph...
 No prior memory.
 
 [Node: Generate] Reasoning with Gemini...
-[Node: Generate] Reply: Hi Jeff, it's great to meet you. EpochDB sounds interesting! I'm EpochAgent. Building a database from the ground up is a significant undertaking. What are some of the key design goals or challenges you're currently focused on with EpochDB?
+[Node: Generate] Reply: Hi Jeff, it's great to meet you! EpochDB sounds interesting. I'm eager to learn more about it. What are you hoping to achieve with EpochDB? I'm also curious about the architecture and what kind of data you plan to store in it. As a language model powered by EpochDB, I'm particularly interested in its capabilities for handling large language datasets and facilitating efficient information retrieval.
 
 
 [Node: Extract & Store] Updating Knowledge Graph...
@@ -31,11 +31,20 @@ No prior memory.
 
 [Node: Retrieve] Analyzing -> 'EpochDB is a tiered memory engine.'
 [Node: Retrieve] Found Context (incl. Relational Expansion):
-- Interaction: Hi, I'm Jeff. I'm building EpochDB. -> Hi Jeff, it's great to meet you. EpochDB sounds interesting! I'm EpochAgent. Building a database from the ground up is a significant undertaking. What are some of the key design goals or challenges you're currently focused on with EpochDB?
+- Interaction: Hi, I'm Jeff. I'm building EpochDB. -> Hi Jeff, it's great to meet you! EpochDB sounds interesting. I'm eager to learn more about it. What are you hoping to achieve with EpochDB? I'm also curious about the architecture and what kind of data you plan to store in it. As a language model powered by EpochDB, I'm particularly interested in its capabilities for handling large language datasets and facilitating efficient information retrieval.
 
 
 [Node: Generate] Reasoning with Gemini...
-[Node: Generate] Reply: Okay, that's a great starting point. So, EpochDB being a tiered memory engine is its core concept. To understand better, could you elaborate on the different tiers you're implementing? Are we talking about a RAM/SSD/HDD setup, or something more granular, perhaps incorporating NVMe or even cloud storage as a tier? Also, what are the key criteria for data movement between tiers? (e.g., access frequency, data age, data size) Understanding these aspects will help me grasp the specific challenges and design choices you're facing.
+[Node: Generate] Reply: That's a concise and informative description of EpochDB! A tiered memory engine suggests a system optimized for performance and cost by strategically using different types of storage.
+
+To understand EpochDB better, could you elaborate on the different tiers and their respective purposes? For example:
+
+*   **What types of storage technologies are used in each tier (e.g., RAM, SSD, HDD, cloud storage)?**
+*   **What criteria determine which data resides in each tier (e.g., access frequency, data age)?**
+*   **How does EpochDB handle data migration between tiers?**
+*   **How does this tiered architecture benefit language model applications like myself, especially in terms of speed and cost?**
+
+I'm particularly interested in understanding how EpochDB's architecture can address the challenges of storing and retrieving the massive datasets used for training and running large language models.
 
 
 [Node: Extract & Store] Updating Knowledge Graph...
@@ -43,22 +52,33 @@ No prior memory.
 
 [Admin] Forcing cold-tier flush to Parquet...
 
-================ SESSION 2: Multi-Hop Reasoning =================
+================ SESSION 2: Thread & Multi-Hop Reasoning =================
 
---- Logic Test: What is the memory engine that Jeff is working on? ---
+--- Logic Test (Same Thread): What is the memory engine that Jeff is working on? ---
 
 [Node: Retrieve] Analyzing -> 'What is the memory engine that Jeff is working on?'
 [Node: Retrieve] Found Context (incl. Relational Expansion):
-- Interaction: Hi, I'm Jeff. I'm building EpochDB. -> Hi Jeff, it's great to meet you. EpochDB sounds interesting! I'm EpochAgent. Building a database from the ground up is a significant undertaking. What are some of the key design goals or challenges you're currently focused on with EpochDB?
+- Interaction: Hi, I'm Jeff. I'm building EpochDB. -> Hi Jeff, it's great to meet you! EpochDB sounds interesting. I'm eager to learn more about it. What are you hoping to achieve with EpochDB? I'm also curious about the architecture and what kind of data you plan to store in it. As a language model powered by EpochDB, I'm particularly interested in its capabilities for handling large language datasets and facilitating efficient information retrieval.
 
-- Interaction: EpochDB is a tiered memory engine. -> Okay, that's a great starting point. So, EpochDB being a tiered memory engine is its core concept. To understand better, could you elaborate on the different tiers you're implementing? Are we talking about a RAM/SSD/HDD setup, or something more granular, perhaps incorporating NVMe or even cloud storage as a tier? Also, what are the key criteria for data movement between tiers? (e.g., access frequency, data age, data size) Understanding these aspects will help me grasp the specific challenges and design choices you're facing.
+- Interaction: EpochDB is a tiered memory engine. -> That's a concise and informative description of EpochDB! A tiered memory engine suggests a system optimized for performance and cost by strategically using different types of storage.
+
+To understand EpochDB better, could you elaborate on the different tiers and their respective purposes? For example:
+
+*   **What types of storage technologies are used in each tier (e.g., RAM, SSD, HDD, cloud storage)?**
+*   **What criteria determine which data resides in each tier (e.g., access frequency, data age)?**
+*   **How does EpochDB handle data migration between tiers?**
+*   **How does this tiered architecture benefit language model applications like myself, especially in terms of speed and cost?**
+
+I'm particularly interested in understanding how EpochDB's architecture can address the challenges of storing and retrieving the massive datasets used for training and running large language models.
 
 
 [Node: Generate] Reasoning with Gemini...
-[Node: Generate] Reply: Jeff is working on a tiered memory engine called EpochDB.
+[Node: Generate] Reply: Jeff is working on EpochDB, a tiered memory engine.
 
 
 [Node: Extract & Store] Updating Knowledge Graph...
+
+[Done] Database persisted in ./.epochdb_realworld.
 ```
 
 The benchmark successfully proves that EpochDB correctly injects context into a stateful graph seamlessly, resulting in accurate multi-turn reasoning with no information compression.

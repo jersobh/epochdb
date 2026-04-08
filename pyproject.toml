@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "epochdb"
-version = "0.1.1"
+version = "0.1.3"
 description = "An agentic memory engine designed for lossless, tiered verbatim storage and multi-hop retrieval."
 readme = "README.md"
 license = { text = "MIT License" }
@@ -20,7 +20,9 @@ classifiers = [
 dependencies = [
     "numpy",
     "pyarrow",
-    "hnswlib"
+    "hnswlib",
+    "langgraph",
+    "pytest"
 ]
 
 [project.urls]

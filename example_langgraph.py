@@ -10,6 +10,7 @@ from typing import Annotated, TypedDict
 from langgraph.graph import StateGraph, END
 from google import genai
 from epochdb import EpochDB
+from epochdb.checkpointer import EpochDBCheckpointer
 
 logging.basicConfig(level=logging.ERROR)
 
@@ -130,8 +131,8 @@ def main():
             
         return {"extracted_triples": extracted}
 
-    # 3. Assemble the LangGraph Workflow
-    print("Compiling Agent Graph...")
+    # 3. Assemble the LangGraph Workflow with Native Checkpointer
+    print("Compiling Agent Graph with Persistent Checkpointer...")
     workflow = StateGraph(AgentState)
     
     workflow.add_node("retrieve", retrieve_memory)
@@ -143,9 +144,13 @@ def main():
     workflow.add_edge("generate", "extract_store")
     workflow.add_edge("extract_store", END)
     
-    app = workflow.compile()
+    # Initialize Checkpointer
+    checkpointer = EpochDBCheckpointer(db)
+    app = workflow.compile(checkpointer=checkpointer)
     
-    # 4. Multi-session Test Run
+    # 4. Multi-session Test Run (Memory + Thread Persistence)
+    thread_config = {"configurable": {"thread_id": "jeff_adventure_1"}}
+    
     print("\n================ SESSION 1: Establishing Reality =================")
     s1_inputs = [
         "Hi, I'm Jeff. I'm building EpochDB.",
@@ -153,15 +158,16 @@ def main():
     ]
     for turn in s1_inputs:
         print(f"\n--- Turn: {turn} ---")
-        app.invoke({"input": turn})
+        app.invoke({"input": turn}, config=thread_config)
     
     print("\n[Admin] Forcing cold-tier flush to Parquet...")
     db.force_checkpoint()
     
-    print("\n================ SESSION 2: Multi-Hop Reasoning =================")
+    print("\n================ SESSION 2: Thread & Multi-Hop Reasoning =================")
+    # Testing both memory recall AND thread state persistence
     test_query = "What is the memory engine that Jeff is working on?"
-    print(f"\n--- Logic Test: {test_query} ---")
-    app.invoke({"input": test_query})
+    print(f"\n--- Logic Test (Same Thread): {test_query} ---")
+    app.invoke({"input": test_query}, config=thread_config)
             
     db.close()
     print(f"\n[Done] Database persisted in ./.epochdb_realworld.")
