@@ -19,13 +19,13 @@ class LongMemEvalBenchmark(BenchmarkAdapter):
 
     def ingest(self):
         dataset = self.load_dataset()
-        for item in tqdm(dataset, desc="Ingesting LongMemEval sessions"):
+        for item in tqdm(dataset, desc=f"Ingesting LongMemEval sessions to {self.store.__class__.__name__}"):
             emb = self.embedder.encode(item["text"])
-            self.db.add_memory(payload=item["text"], embedding=emb)
+            self.store.add(payload=item["text"], embedding=emb)
             
-            # Force checkpoints periodically to simulate time passing (Hot -> Cold transitions)
+            # Force checkpoints periodically to simulate time passing (Hot -> Cold transitions in EpochDB)
             if item["session_id"] % 2 == 0:
-                self.db.force_checkpoint()
+                self.store.checkpoint()
 
     def evaluate(self) -> Dict[str, float]:
         questions = [
@@ -36,7 +36,7 @@ class LongMemEvalBenchmark(BenchmarkAdapter):
         correct = 0
         for q, expected in questions:
             q_emb = self.embedder.encode(q)
-            results = self.db.recall(q_emb, top_k=3)
+            results = self.store.query(q_emb, top_k=3)
             found = any(expected.lower() in str(r.payload).lower() for r in results)
             if found:
                 correct += 1

@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
-from epochdb import EpochDB
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -10,11 +9,31 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+class VectorStoreAdapter(ABC):
+    """Abstract interface for different vector database backends."""
+    
+    @abstractmethod
+    def add(self, payload: Any, embedding: Any, triples: Optional[List[tuple]] = None):
+        pass
+
+    @abstractmethod
+    def query(self, query_emb: Any, top_k: int = 5, **kwargs) -> List[Any]:
+        pass
+    
+    @abstractmethod
+    def clear(self):
+        pass
+
+    @abstractmethod
+    def checkpoint(self):
+        """Optional: handle tier transitions or persistence flushes."""
+        pass
+
 class BenchmarkAdapter(ABC):
     name = "BaseBenchmark"
 
-    def __init__(self, db: EpochDB, embedder: SentenceTransformer):
-        self.db = db
+    def __init__(self, store: VectorStoreAdapter, embedder: SentenceTransformer):
+        self.store = store
         self.embedder = embedder
         
     @abstractmethod
@@ -28,10 +47,10 @@ class BenchmarkAdapter(ABC):
 
     @abstractmethod
     def ingest(self):
-        """Pushes data into EpochDB."""
+        """Pushes data into the vector store."""
         pass
 
     @abstractmethod
     def evaluate(self) -> Dict[str, float]:
-        """Runs test queries against EpochDB and returns metrics."""
+        """Runs test queries against the store and returns metrics."""
         pass

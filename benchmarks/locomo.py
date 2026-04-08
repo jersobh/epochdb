@@ -28,23 +28,19 @@ class LoCoMoBenchmark(BenchmarkAdapter):
 
     def ingest(self):
         dataset = self.load_dataset()
-        for item in tqdm(dataset, desc="Ingesting LoCoMo"):
+        for item in tqdm(dataset, desc=f"Ingesting LoCoMo to {self.store.__class__.__name__}"):
             emb = self.embedder.encode(item["text"])
             triples = self._extract_heuristic_triples(item["text"])
-            self.db.add_memory(payload=item["text"], embedding=emb, triples=triples)
+            self.store.add(payload=item["text"], embedding=emb, triples=triples)
 
     def evaluate(self) -> Dict[str, float]:
         # LoCoMo evaluates Multi-hop reasoning
         q = "What is the name of the fusion company that the CEO of OpenAI invested in?"
         
-        # In a real model, it would break this down.
-        # We search with Semantic Hook + Relational Expansion (hops)
-        # We set top_k low but expand_hops=2 to allow the Knowledge Graph to traverse:
-        # OpenAI -> Sam Altman -> fusion company -> Helion
-        
         q_emb = self.embedder.encode(q)
-        # Using the engine we query. (engine internally passes expand_hops=1, we can bypass to hit retrieval directly)
-        results = self.db.retriever.search(q_emb, top_k=2, expand_hops=2)
+        # We use expand_hops=2 to allow the Knowledge Graph to traverse (for EpochDB)
+        # ChromaDB adapter will ignore this and do standard semantic search.
+        results = self.store.query(q_emb, top_k=2, expand_hops=2)
         
         found = any("Helion" in str(r.payload) for r in results)
         
