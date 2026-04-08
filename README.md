@@ -1,6 +1,6 @@
 # EpochDB
 
-**EpochDB** is an agentic memory engine designed for lossless, tiered verbatim storage and multi-hop retrieval.
+**EpochDB** is an **ACID-compliant** agentic memory engine designed for lossless, tiered verbatim storage and multi-hop retrieval.
 
 ## Why
 I had this idea while playing with LMDB. I wanted to create a memory system that could store conversations in a hybrid way, using in-memory for the most recent conversations and on-disk for older conversations. So, in order to have immutable data, I decided to use Parquet files for the on-disk storage. 
