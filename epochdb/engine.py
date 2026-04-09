@@ -115,26 +115,49 @@ class EpochDB:
             self._checkpoint()
 
     def _checkpoint(self):
-        """Epoch Checkpoint: Flush to disk, clear memory."""
-        logger.info(f"Triggering Epoch Checkpoint for {self.current_epoch_id}")
+        """Epoch Checkpoint: Flush to disk asynchronously, clear memory instantly."""
+        logger.info(f"Triggering Asynchronous Epoch Checkpoint for {self.current_epoch_id}")
         
-        # Gather atoms
-        atoms = list(self.hot_tier.atoms.values())
+        # Gather deep copy of atoms array
+        atoms_to_flush = list(self.hot_tier.atoms.values())
+        epoch_to_flush = self.current_epoch_id
         
-        if atoms:
-            self.cold_tier.serialize_epoch(self.current_epoch_id, atoms)
+        # Start new Epoch immediately (sync)
+        self.current_epoch_id = f"epoch_{int(time.time())}"
+        self.epoch_start_time = time.time()
         
-        # Clear Hot Tier & WAL
+        # Clear Hot Tier & WAL immediately (sync)
         self.hot_tier.clear()
         self.wal.clear()
         
-        # Start new Epoch
-        self.current_epoch_id = f"epoch_{int(time.time())}"
-        self.epoch_start_time = time.time()
+        # Flush to Disk (Async)
+        import threading
+        def flush_task(epoch_id, atoms):
+            try:
+                if atoms:
+                    self.cold_tier.serialize_epoch(epoch_id, atoms)
+            except Exception as e:
+                logger.error(f"Error during async epoch serialization: {e}")
+                
+        thread = threading.Thread(target=flush_task, args=(epoch_to_flush, atoms_to_flush))
+        thread.daemon = True
+        thread.start()
 
     def force_checkpoint(self):
-        """Manually trigger checkpoint for testing."""
-        self._checkpoint()
+        """Manually trigger checkpoint for testing (Synchronous)."""
+        logger.info(f"Triggering Synchronous Epoch Checkpoint for {self.current_epoch_id}")
+        
+        atoms_to_flush = list(self.hot_tier.atoms.values())
+        epoch_to_flush = self.current_epoch_id
+        
+        self.current_epoch_id = f"epoch_{int(time.time())}"
+        self.epoch_start_time = time.time()
+        
+        self.hot_tier.clear()
+        self.wal.clear()
+        
+        if atoms_to_flush:
+            self.cold_tier.serialize_epoch(epoch_to_flush, atoms_to_flush)
 
     def close(self):
         self._save_global_kg()

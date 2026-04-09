@@ -28,19 +28,22 @@ def run_benchmarks(run_convo=False, run_long=False, run_loco=False):
         
     db = EpochDB(storage_dir="./.epochdb_benchmark", dim=dim)
     
+    from .adapters import EpochDBStoreAdapter
+    store = EpochDBStoreAdapter(db)
+    
     adapters = []
     if run_convo:
-        adapters.append(ConvoMemBenchmark(db, embedder))
+        adapters.append(ConvoMemBenchmark(store, embedder))
     if run_long:
-        adapters.append(LongMemEvalBenchmark(db, embedder))
+        adapters.append(LongMemEvalBenchmark(store, embedder))
     if run_loco:
-        adapters.append(LoCoMoBenchmark(db, embedder))
+        adapters.append(LoCoMoBenchmark(store, embedder))
         
     if not adapters:
         adapters = [
-            ConvoMemBenchmark(db, embedder),
-            LongMemEvalBenchmark(db, embedder),
-            LoCoMoBenchmark(db, embedder)
+            ConvoMemBenchmark(store, embedder),
+            LongMemEvalBenchmark(store, embedder),
+            LoCoMoBenchmark(store, embedder)
         ]
 
     for adapter in adapters:

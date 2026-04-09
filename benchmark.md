@@ -98,7 +98,7 @@ To validate the unique architecture of EpochDB, we ran a side-by-side comparison
 | | LanceDB | 5.49 | 0.05 | recall@3: 1.000 |
 | | FAISS | 4.66 | 0.03 | recall@3: 1.000 |
 | | Qdrant | 4.58 | 0.03 | recall@3: 1.000 |
-| **LongMemEval** | EpochDB | 0.09 | 0.04 | recall@3: 1.000 |
+| **LongMemEval** | EpochDB | 0.09 | 0.04 | recall@3: 0.500 |
 | | ChromaDB | 0.07 | 0.03 | recall@3: 1.000 |
 | | LanceDB | 0.07 | 0.04 | recall@3: 1.000 |
 | | FAISS | 0.05 | 0.02 | recall@3: 1.000 |

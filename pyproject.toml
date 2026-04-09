@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "epochdb"
-version = "0.1.3"
+version = "0.2.0"
 description = "An agentic memory engine designed for lossless, tiered verbatim storage and multi-hop retrieval."
 readme = "README.md"
 license = { text = "MIT License" }

@@ -26,7 +26,18 @@ class ColdTier:
         
         ids = [a.id for a in atoms]
         payloads = [str(a.payload) for a in atoms]
-        embeddings = [a.embedding.tolist() for a in atoms]
+        embeddings_f32 = np.array([a.embedding for a in atoms], dtype=np.float32)
+        if len(atoms) > 0 and embeddings_f32.size > 0:
+            max_vals = np.abs(embeddings_f32).max(axis=1, keepdims=True)
+            max_vals[max_vals == 0] = 1.0
+            scaled = (embeddings_f32 / max_vals) * 127.0
+            embeddings_i8 = np.clip(np.round(scaled), -128, 127).astype(np.int8)
+            embeddings = embeddings_i8.tolist()
+            embedding_maxes = max_vals.flatten().tolist()
+        else:
+            embeddings = []
+            embedding_maxes = []
+        
         created_ats = [a.created_at for a in atoms]
         access_counts = [a.access_count for a in atoms]
         triples_str = [str(a.triples) for a in atoms]
@@ -35,6 +46,7 @@ class ColdTier:
             "id": ids,
             "payload": payloads,
             "embedding": embeddings,
+            "embedding_max": embedding_maxes,
             "triples": triples_str,
             "created_at": created_ats,
             "access_count": access_counts,
@@ -60,10 +72,14 @@ class ColdTier:
             except:
                 triples = []
                 
+            emb = np.array(row['embedding'], dtype=np.float32)
+            if 'embedding_max' in row and row['embedding_max'] is not None:
+                emb = (emb / 127.0) * row['embedding_max']
+
             atom = UnifiedMemoryAtom(
                 id=row['id'],
                 payload=row['payload'],
-                embedding=np.array(row['embedding'], dtype=np.float32),
+                embedding=emb,
                 triples=triples,
                 created_at=row['created_at'],
                 access_count=row['access_count'],
