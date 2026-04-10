@@ -58,7 +58,8 @@ class EpochDB:
                 logger.error(f"Failed to load global KG: {e}")
         
         # Epoch State
-        self.current_epoch_id = f"epoch_{int(time.time())}"
+        import uuid
+        self.current_epoch_id = f"epoch_{uuid.uuid4().hex[:8]}"
         self.epoch_start_time = time.time()
         
         # Tiers
@@ -123,7 +124,8 @@ class EpochDB:
         epoch_to_flush = self.current_epoch_id
         
         # Start new Epoch immediately (sync)
-        self.current_epoch_id = f"epoch_{int(time.time())}"
+        import uuid
+        self.current_epoch_id = f"epoch_{uuid.uuid4().hex[:8]}"
         self.epoch_start_time = time.time()
         
         # Clear Hot Tier & WAL immediately (sync)
@@ -150,7 +152,8 @@ class EpochDB:
         atoms_to_flush = list(self.hot_tier.atoms.values())
         epoch_to_flush = self.current_epoch_id
         
-        self.current_epoch_id = f"epoch_{int(time.time())}"
+        import uuid
+        self.current_epoch_id = f"epoch_{uuid.uuid4().hex[:8]}"
         self.epoch_start_time = time.time()
         
         self.hot_tier.clear()

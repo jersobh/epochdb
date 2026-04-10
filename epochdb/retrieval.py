@@ -50,7 +50,7 @@ class RetrievalManager:
                 dots = np.dot(embeddings, query_emb)
                 sims = dots / norms
                 
-                best_idx = np.argsort(sims)[-top_k:][::-1]
+                best_idx = np.argsort(sims)[-top_k * 3:][::-1]
                 for idx in best_idx:
                     if sims[idx] > 0.0:
                         atom = cold_atoms[idx]
@@ -120,7 +120,7 @@ class RetrievalManager:
         unique_results.sort(key=lambda x: rrf_score(x[0].id), reverse=True)
 
         final_atoms = []
-        for atom, _ in unique_results[:top_k * 2]:
+        for atom, _ in unique_results[:top_k]:
             atom.access_count += 1
             final_atoms.append(atom)
 
