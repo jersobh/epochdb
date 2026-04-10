@@ -26,12 +26,13 @@ class RetrievalManager:
                 return a
         return None
 
-    def search(self, query_emb: np.ndarray, top_k: int = 5, expand_hops: int = 1) -> List[UnifiedMemoryAtom]:
+    def search(self, query_emb: np.ndarray, top_k: int = 5, expand_hops: int = 1, query_entities: List[str] = None) -> List[UnifiedMemoryAtom]:
+        query_entities = set(query_entities) if query_entities else set()
         # Use Tuples to track (atom, semantic_similarity) for RRF
         candidates: Dict[str, tuple] = {}
 
         # 1. Semantic Hook (Hot Tier)
-        hot_hits = self.hot_tier.query_vector(query_emb, top_k=top_k)
+        hot_hits = self.hot_tier.query_vector(query_emb, top_k=top_k * 2)
         for atom in hot_hits:
             if len(atom.embedding) == len(query_emb):
                 score = np.dot(atom.embedding, query_emb) / (np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10)
@@ -50,12 +51,11 @@ class RetrievalManager:
                 dots = np.dot(embeddings, query_emb)
                 sims = dots / norms
                 
-                best_idx = np.argsort(sims)[-top_k * 3:][::-1]
+                best_idx = np.argsort(sims)[-top_k * 5:][::-1]
                 for idx in best_idx:
-                    if sims[idx] > 0.0:
+                    if sims[idx] > 0.1: # Minimum threshold for cold tier
                         atom = cold_atoms[idx]
                         if len(atom.embedding) != len(query_emb):
-                            logger.warning(f"Skipping atom {atom.id} due to dim mismatch ({len(atom.embedding)} vs {len(query_emb)})")
                             continue
                         candidates[atom.id] = (atom, float(sims[idx]))
 
@@ -64,7 +64,6 @@ class RetrievalManager:
             expansion_set = set(candidates.keys())
             for _ in range(expand_hops):
                 new_neighbors = set()
-                # Step B: Identify Entities
                 for a_id in expansion_set:
                     atom_data = candidates.get(a_id)
                     if not atom_data: continue
@@ -74,50 +73,60 @@ class RetrievalManager:
                         entities.add(subj)
                         entities.add(obj)
                     
-                    # Step C: Query KG for neighbors
                     for ent in entities:
                         if ent in self.global_kg:
                             for neighbor_atom_id, epoch_id in self.global_kg[ent]:
                                 if neighbor_atom_id not in candidates:
-                                    # Step D: Targeted Fetch
                                     n_atom = self._fetch_atom_by_id(neighbor_atom_id, epoch_id)
-                                    if n_atom:
-                                        if len(n_atom.embedding) == len(query_emb):
-                                            score = np.dot(n_atom.embedding, query_emb) / (np.linalg.norm(n_atom.embedding) * np.linalg.norm(query_emb) + 1e-10)
-                                        else:
-                                            score = 0.0
-                                        
-                                        # SMART FILTERING: Only expand to this neighbor if semantic score > threshold
-                                        if score > 0.15:
-                                            new_neighbors.add(n_atom.id)
-                                            candidates[n_atom.id] = (n_atom, float(score))
+                                    if n_atom and len(n_atom.embedding) == len(query_emb):
+                                        score = np.dot(n_atom.embedding, query_emb) / (np.linalg.norm(n_atom.embedding) * np.linalg.norm(query_emb) + 1e-10)
+                                        new_neighbors.add(n_atom.id)
+                                        candidates[n_atom.id] = (n_atom, float(score))
                 expansion_set = new_neighbors
 
-        # 3. Hybrid Ranking (RRF) and Payload Deduplication
-        all_atoms_with_sim = list(candidates.values())
+        # 3. Hybrid Ranking (3-Way RRF) and Payload Deduplication
+        all_candidates = list(candidates.values())
         unique_results = []
         seen_payloads = set()
         
-        for atom, sim in all_atoms_with_sim:
+        for atom, sim in all_candidates:
             payload_key = str(atom.payload)
             if payload_key not in seen_payloads:
                 unique_results.append((atom, sim))
                 seen_payloads.add(payload_key)
 
-        # Rank by Semantic Similarity
+        if not unique_results:
+            return []
+
+        # -- RRF FACTORS --
+        
+        # Factor A: Semantic Similarity Rank
         unique_results.sort(key=lambda x: x[1], reverse=True)
-        sim_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
+        sem_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
 
-        # Rank by Saliency
-        unique_results.sort(key=lambda x: x[0].calculate_saliency(), reverse=True)
-        saliency_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
+        # Factor B: Recency Rank (Freshness)
+        unique_results.sort(key=lambda x: x[0].created_at, reverse=True)
+        recency_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
 
-        # Execute Reciprocal Rank Fusion
+        # Factor C: Entity Overlap Rank
+        def get_overlap(atom):
+            atom_entities = set()
+            for s, p, o in atom.triples:
+                atom_entities.add(s); atom_entities.add(o)
+            return len(query_entities.intersection(atom_entities))
+        
+        unique_results.sort(key=lambda x: get_overlap(x[0]), reverse=True)
+        entity_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
+
+        # Execute 3-Way Reciprocal Rank Fusion
         K = 60
-        def rrf_score(atom_id):
-            return (1.0 / (K + sim_ranks[atom_id])) + (1.0 / (K + saliency_ranks[atom_id]))
+        def multi_rrf_score(atom_id):
+            score = (1.0 / (K + sem_ranks[atom_id]))
+            score += (1.0 / (K + recency_ranks[atom_id]))
+            score += (1.0 / (K + entity_ranks[atom_id]))
+            return score
 
-        unique_results.sort(key=lambda x: rrf_score(x[0].id), reverse=True)
+        unique_results.sort(key=lambda x: multi_rrf_score(x[0].id), reverse=True)
 
         final_atoms = []
         for atom, _ in unique_results[:top_k]:

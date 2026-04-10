@@ -23,7 +23,7 @@ graph LR
     subgraph "Reasoning Core"
         B --> C{Semantic Search}
         B --> D{Relational Expansion}
-        C & D --> R{Hybrid RRF Ranking}
+        C & D --> R{3-Way RRF Ranking}
     end
     C & D --> E[Working Memory - RAM]
     C & D --> F[Historical Archive - Parquet + Zstd]
@@ -43,8 +43,8 @@ Integrate EpochDB into your **LangGraph** workflows to provide agents with perfe
 from epochdb import EpochDB
 from langgraph.graph import StateGraph, END
 
-# 1. Initialize EpochDB (e.g., 3072D for Gemini 2.0)
-db = EpochDB(storage_dir="./agent_memory", dim=3072)
+# 1. Initialize EpochDB (e.g., 384D for all-MiniLM-L6-v2)
+db = EpochDB(storage_dir="./agent_memory", dim=384)
 
 # 2. Define a Retrieval Node with Relational Expansion (Multi-Hop)
 def retrieve_memory(state):
@@ -88,10 +88,11 @@ EpochDB is engineered specifically for **Agentic workflows** where logical conti
 ## Changelog
 For a detailed history of changes, see [CHANGELOG.md](CHANGELOG.md).
 
-### Recent Highlights (v0.2.x)
+### Recent Highlights (v0.3.x)
+- **3-Way RRF Ranking**: Fuses Semantic, Recency, and Entity Overlap for state-of-the-art recall.
 - **Asynchronous Tiering**: Background flushes prevent I/O blocking.
 - **Superior Compression**: Combined INT8 Quantization and Zstd reduces disk footprint by >4x.
-- **Robust Multi-Hop Retrieval**: UUID-based epoch tracking and expanded candidate gathering ensure 100% recall on longitudinal benchmarks.
+- **Robust Multi-Hop Retrieval**: UUID-based epoch tracking and expanded candidate gathering.
 - **LangGraph Native**: Dynamic state persistence via built-in checkpointers.
 
 ## How It Works

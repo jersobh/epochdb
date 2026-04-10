@@ -104,9 +104,9 @@ class EpochDB:
         self._check_epoch_expiry()
         return atom.id
 
-    def recall(self, query_emb: np.ndarray, top_k: int = 5, expand_hops: int = 1) -> List[UnifiedMemoryAtom]:
+    def recall(self, query_emb: np.ndarray, top_k: int = 5, expand_hops: int = 1, query_entities: List[str] = None) -> List[UnifiedMemoryAtom]:
         """Agent queries memory."""
-        results = self.retriever.search(query_emb, top_k=top_k, expand_hops=expand_hops)
+        results = self.retriever.search(query_emb, top_k=top_k, expand_hops=expand_hops, query_entities=query_entities)
         self._check_epoch_expiry()
         return results
 

@@ -2,6 +2,14 @@
 
 All notable changes to **EpochDB** will be documented in this file.
 
+## [0.3.0] - 2026-04-10
+### Added
+- **3-Way RRF Ranking**: Implemented a comprehensive search ranking engine using Reciprocal Rank Fusion of three independent factors: Semantic Similarity, Temporal Recency, and Entity Overlap.
+- **Query Entity Extraction Support**: The `recall` API now accepts a `query_entities` parameter, enabling the engine to prioritize memories that share common actors, locations, or identifiers with the current query.
+
+### Changed
+- **Default Dimensionality**: Optimized for 384D embeddings (e.g., `all-MiniLM-L6-v2`), providing significant memory and disk savings with consistent benchmark performance.
+
 ## [0.2.2] - 2026-04-10
 ### Fixed
 - **Storage Race Condition**: Epoch IDs now utilize UUID-based hashing (`epoch_uuid8`) instead of pure timestamps. This prevents critical data erasure (overwrites) during rapid-fire checkpoints in high-ingestion agentic workloads.
