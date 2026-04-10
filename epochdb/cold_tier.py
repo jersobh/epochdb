@@ -66,7 +66,7 @@ class ColdTier:
             "epoch_id": [epoch_id] * len(atoms)
         }, schema=schema)
         
-        pq.write_table(table, file_path)
+        pq.write_table(table, file_path, compression='ZSTD')
         logger.info(f"Serialized {len(atoms)} atoms to {file_path}")
 
     def load_epoch(self, epoch_id: str) -> List[UnifiedMemoryAtom]:
