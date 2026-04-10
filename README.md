@@ -85,6 +85,15 @@ EpochDB is engineered specifically for **Agentic workflows** where logical conti
 > [!IMPORTANT]
 > **Relational Expansion**: While tools like FAISS and ChromaDB are excellent for single-turn semantic search, they act as "flat" stores. EpochDB leverages its integrated **Knowledge Graph** to bridge logical gaps, successfully navigating multi-hop queries where competitors fail completely.
 
+## Changelog
+For a detailed history of changes, see [CHANGELOG.md](CHANGELOG.md).
+
+### Recent Highlights (v0.2.x)
+- **Asynchronous Tiering**: Background flushes prevent I/O blocking.
+- **Superior Compression**: Combined INT8 Quantization and Zstd reduces disk footprint by >4x.
+- **Robust Multi-Hop Retrieval**: UUID-based epoch tracking and expanded candidate gathering ensure 100% recall on longitudinal benchmarks.
+- **LangGraph Native**: Dynamic state persistence via built-in checkpointers.
+
 ## How It Works
 See [`how_it_works.md`](how_it_works.md) for a detailed technical dive into the tiered architecture and ACID-compliant transactional layer.
 
