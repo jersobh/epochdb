@@ -21,9 +21,9 @@ CLR_END = "\033[0m"
 BOLD = "\033[1m"
 
 def print_banner(text):
-    print(f"\n{BOLD}{CLR_BLU}{'='*60}{CLR_END}")
-    print(f"{BOLD}{CLR_CYN} {text} {CLR_END}")
-    print(f"{BOLD}{CLR_BLU}{'='*60}{CLR_END}")
+    print("====================================================")
+    print("=  Knowledge Base Assistant (EpochDB v0.3.0 Demo)  =")
+    print("====================================================\n")
 
 def main():
     storage_dir = "./.epochdb_demo"
@@ -39,6 +39,7 @@ def main():
     
     # 1. Initialize Local Model
     print(f"{CLR_YEL}Loading Local Embedding Model (all-MiniLM-L6-v2)...{CLR_END}")
+    # MiniLM-L6-v2 is the recommended 384D model for EpochDB v0.3.0
     embedder = SentenceTransformer("all-MiniLM-L6-v2")
     dim = 384
     db = EpochDB(storage_dir=storage_dir, dim=dim)
@@ -65,7 +66,7 @@ def main():
     
     query_emb = embedder.encode(query)
     # Standard retrieval (0 hops)
-    results = db.recall(query_emb, top_k=1, expand_hops=0)
+    results = db.recall(query_emb, top_k=1, expand_hops=0, query_entities=["Jeff"])
     
     for r in results:
         print(f"{BOLD}[HIT]{CLR_END} {r.payload} (Saliency: {r.calculate_saliency():.3f})")
@@ -77,9 +78,12 @@ def main():
     print(f"{CLR_BLU}Theory: Normal vector stores fail this because 'Jeff' and 'Parquet' share no keywords.{CLR_END}")
     
     query_emb = embedder.encode(complex_query)
-    # Relational retrieval (2 hops)
-    # Jeff -> leads -> Project Zero -> uses -> Parquet
-    results = db.recall(query_emb, top_k=3, expand_hops=2)
+    # v0.3.0 NEW: Extract entities from query to enable Entity-Centric RRF ranking
+    # In a real app, use an LLM for extraction; here we use a simple heuristic.
+    q_entities = ["Jeff", "Project Zero", "Parquet"] 
+    
+    # Relational retrieval (2 hops) + 3-Way RRF Fusion
+    results = db.recall(query_emb, top_k=3, expand_hops=2, query_entities=q_entities)
     
     print(f"\n{BOLD}EpochDB results (Bridging the gap):{CLR_END}")
     for i, r in enumerate(results):

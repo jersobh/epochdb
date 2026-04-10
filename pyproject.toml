@@ -22,6 +22,8 @@ dependencies = [
     "pyarrow",
     "hnswlib",
     "langgraph",
+    "sentence-transformers",
+    "requests",
     "pytest",
     "zstandard"
 ]

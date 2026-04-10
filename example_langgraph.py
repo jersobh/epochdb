@@ -44,19 +44,10 @@ def main():
     api_key = os.environ.get("GEMINI_API_KEY", "dummy")
     client = genai.Client(api_key=api_key)
     
-    # Simple dimensionality detection
-    actual_dim = 768
-    if api_key != "dummy":
-        try:
-            temp_resp = client.models.embed_content(model='gemini-embedding-2-preview', contents="test")
-            actual_dim = len(temp_resp.embeddings[0].values)
-            print(f"Detected {actual_dim} dimensions from Gemini.")
-        except:
-            pass
-            
-    embedder = GeminiEmbedder(client, dim=actual_dim)
-    # Manual override for simulation check since SDK client is opaque
-    embedder.is_dummy = (api_key == "dummy")
+    # 1. Initialize Local Embedder (MiniLM-L6-v2) for v0.3.0 Standard
+    from sentence_transformers import SentenceTransformer
+    embedder = SentenceTransformer("all-MiniLM-L6-v2")
+    actual_dim = 384
     
     db = EpochDB(storage_dir="./.epochdb_realworld", dim=actual_dim)
 
@@ -66,8 +57,13 @@ def main():
         print(f"\n[Node: Retrieve] Analyzing -> '{state['input']}'")
         try:
             query_emb = embedder.encode(state["input"])
-            # Multi-hop retrieval: find semantic match + 2 hops of related info
-            results = db.recall(query_emb, top_k=3, expand_hops=2)
+            
+            # v0.3.0: Extract query entities for RRF boosting
+            # Heuristic: any capitalized words or specific keywords
+            q_entities = [w.strip() for w in state["input"].split() if w[0].isupper() or "epochdb" in w.lower()]
+            
+            # Multi-hop retrieval: find semantic match + 2 hops of related info + 3-Way RRF Ranking
+            results = db.recall(query_emb, top_k=3, expand_hops=2, query_entities=q_entities)
             
             if not results:
                 context_str = "No prior memory."

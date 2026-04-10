@@ -76,9 +76,11 @@ EpochDB is engineered specifically for **Agentic workflows** where logical conti
 
 | Benchmark | Store | Metrics | Note |
 | :--- | :--- | :--- | :--- |
-| **LoCoMo** | **EpochDB** | **recall: 1.000** | **100% Multi-hop Accuracy** |
+| Benchmark | Store | Metrics | Note |
+| :--- | :--- | :--- | :--- |
+| **LoCoMo** | **EpochDB** | **recall: 1.000** | **Functional Logic Validation** |
 | | ChromaDB | recall: 0.000 | Failed to connect related events |
-| | Qdrant | recall: 0.000 | Failed to connect related events |
+| | LanceDB | recall: 0.000 | Failed to connect related events |
 | **ConvoMem**| EpochDB | recall@3: 1.000 | Perfect Semantic retrieval |
 | | FAISS | recall@3: 1.000 | Perfect Semantic retrieval |
 

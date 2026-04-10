@@ -41,7 +41,7 @@ class KnowledgeMockEmbedder:
 
 def main():
     print("====================================================")
-    print("=  Knowledge Base Assistant (EpochDB v0.2.0 Demo)  =")
+    print("=  Knowledge Base Assistant (EpochDB v0.3.0 Demo)  =")
     print("====================================================\n")
 
     db_dir = "./.epochdb_kb_demo"
@@ -56,8 +56,12 @@ def main():
     # 3. LangGraph Node Definitions
     def retrieve_memory(state: AgentState):
         query_emb = embedder.encode(state["input"])
-        # Leveraging Semantic Edge Filtering (< 0.15 cutoff in engine)
-        results = db.recall(query_emb, top_k=1, expand_hops=3)
+        
+        # v0.3.0 Feature: Pass query entities to recall for prioritized ranking
+        q_entities = ["Project Alpha"] if "alpha" in state["input"].lower() else []
+        
+        # Leveraging Semantic Edge Filtering + Entity-Centric RRF
+        results = db.recall(query_emb, top_k=1, expand_hops=3, query_entities=q_entities)
         
         context_str = "\n".join([f" - {r.payload}" for r in results]) if results else "No related documents found."
         print(f"\n[Retriever] Context Re-Assembled:\n{context_str}")

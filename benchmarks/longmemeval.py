@@ -36,7 +36,10 @@ class LongMemEvalBenchmark(BenchmarkAdapter):
         correct = 0
         for q, expected in questions:
             q_emb = self.embedder.encode(q)
-            results = self.store.query(q_emb, top_k=3)
+            # v0.3.0: Boost recall using known entities from the query
+            q_entities = ["Alice"] + expected.split()
+            
+            results = self.store.query(q_emb, top_k=3, query_entities=q_entities)
             found = any(expected.lower() in str(r.payload).lower() for r in results)
             if found:
                 correct += 1

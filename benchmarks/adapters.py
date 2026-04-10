@@ -16,9 +16,10 @@ class EpochDBStoreAdapter(VectorStoreAdapter):
         
     def query(self, query_emb: Any, top_k: int = 5, **kwargs) -> List[Any]:
         expand_hops = kwargs.get("expand_hops", 0)
+        query_entities = kwargs.get("query_entities", None)
         if expand_hops > 0:
-            return self.db.retriever.search(query_emb, top_k=top_k, expand_hops=expand_hops)
-        return self.db.recall(query_emb, top_k=top_k)
+            return self.db.retriever.search(query_emb, top_k=top_k, expand_hops=expand_hops, query_entities=query_entities)
+        return self.db.recall(query_emb, top_k=top_k, query_entities=query_entities)
         
     def clear(self):
         # We handle clearing in the client/runner side by recreating the DB or clearing tiers

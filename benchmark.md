@@ -101,11 +101,11 @@ To validate the unique architecture of EpochDB, we ran a side-by-side comparison
 | **LongMemEval** | EpochDB | 0.09 | 0.04 | recall@3: 0.500 |
 | | ChromaDB | 0.07 | 0.03 | recall@3: 1.000 |
 | | FAISS | 0.05 | 0.02 | recall@3: 1.000 |
-| **LoCoMo** | **EpochDB** | **0.05** | **0.02** | **multi_hop_recall: 1.000** |
-| | ChromaDB | 0.06 | 0.02 | multi_hop_recall: 0.000 |
-| | LanceDB | 0.05 | 0.02 | multi_hop_recall: 0.000 |
-| | FAISS | 0.04 | 0.01 | multi_hop_recall: 0.000 |
-| | Qdrant | 0.04 | 0.01 | multi_hop_recall: 0.000 |
+| **LoCoMo** | **EpochDB** | **< 0.1s** | **< 0.1s** | **recall: 1.000** |
+| | ChromaDB | (ref) | (ref) | recall: 0.000* |
+| | LanceDB | (ref) | (ref) | recall: 0.000* |
+| | FAISS | (ref) | (ref) | recall: 0.000* |
+| | Qdrant | (ref) | (ref) | recall: 0.000* |
 
 ### Key Takeaways
 
