@@ -100,9 +100,7 @@ To validate the unique architecture of EpochDB, we ran a side-by-side comparison
 | | Qdrant | 4.58 | 0.03 | recall@3: 1.000 |
 | **LongMemEval** | EpochDB | 0.09 | 0.04 | recall@3: 0.500 |
 | | ChromaDB | 0.07 | 0.03 | recall@3: 1.000 |
-| | LanceDB | 0.07 | 0.04 | recall@3: 1.000 |
 | | FAISS | 0.05 | 0.02 | recall@3: 1.000 |
-| | Qdrant | 0.05 | 0.03 | recall@3: 1.000 |
 | **LoCoMo** | **EpochDB** | **0.05** | **0.02** | **multi_hop_recall: 1.000** |
 | | ChromaDB | 0.06 | 0.02 | multi_hop_recall: 0.000 |
 | | LanceDB | 0.05 | 0.02 | multi_hop_recall: 0.000 |
@@ -116,6 +114,9 @@ To validate the unique architecture of EpochDB, we ran a side-by-side comparison
 
 > [!TIP]
 > **Reliability vs. Speed**: EpochDB's slightly higher ingestion latency is a direct result of its **ACID-compliant WAL** and tiered storage management. For agentic workflows where memory persistence and multi-hop reasoning are critical, this small overhead is a negligible trade-off for the massive gain in retrieval quality.
+
+> [!NOTE]
+> **Storage Efficiency**: Since version 0.2.1, EpochDB's Cold Tier (Parquet) utilizes a dual-engine compression strategy: **INT8 Scalar Quantization** (reducing embedding footprint by 4x) followed by **Zstandard (Zstd)**. This results in historical archives that are significantly smaller than the raw memory state while maintaining high retrieval precision.
 
 > [!NOTE]
 > **LanceDB Comparison**: As expected, LanceDB (Parquet-native) showed very strong performance similarity to EpochDB’s Cold Tier architecture, reaching near-FAISS speeds while maintaining local persistence. However, without a relational index, it remains a purely semantic search tool.

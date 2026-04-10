@@ -10,7 +10,8 @@ Traditional AI memory systems compress conversations through destructive summari
 
 EpochDB uses a tiered architecture reminiscent of CPU caching:
 1. **L1: Working Memory**: Sub-millisecond HNSW vector index in RAM.
-2. **L2: Historical Archive**: Cold storage in immutable, time-partitioned `.parquet` files via PyArrow, leveraging **int8 Scalar Quantization** for a 4x reduction in disk footprint.
+2. **L2: Historical Archive**: Cold storage in immutable, time-partitioned `.parquet` files via PyArrow, leveraging **int8 Scalar Quantization** and **Zstd Compression** for a massive reduction in disk footprint.
+3. **Asynchronous Ingestion**: Ingestion occurs via daemon threads, preventing I/O bottlenecks and ensuring smooth agent responsiveness.
 
 It uniquely handles multi-hop retrieval over time-partitioned data using a **Global Entity Index**.
 
@@ -25,7 +26,7 @@ graph LR
         C & D --> R{Hybrid RRF Ranking}
     end
     C & D --> E[Working Memory - RAM]
-    C & D --> F[Historical Archive - Parquet]
+    C & D --> F[Historical Archive - Parquet + Zstd]
 ```
 
 ## Installation
