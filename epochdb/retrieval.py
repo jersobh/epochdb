@@ -20,9 +20,7 @@ class RetrievalManager:
             return self.hot_tier.atoms[atom_id]
         
         # Check Cold Tier targeted by epoch
-        # epoch_id might be "epoch_X" but load_epoch expects X
-        epoch_str = epoch_id.replace("epoch_", "")
-        atoms = self.cold_tier.load_epoch(epoch_str)
+        atoms = self.cold_tier.load_epoch(epoch_id)
         for a in atoms:
             if a.id == atom_id:
                 return a

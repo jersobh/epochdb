@@ -22,7 +22,9 @@ class ColdTier:
         if not atoms:
             return
             
-        file_path = os.path.join(self.storage_dir, f"epoch_{epoch_id}.parquet")
+        # Ensure epoch_id is used as the filename base. 
+        # Filename will be <epoch_id>.parquet (e.g. epoch_123.parquet)
+        file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
         
         ids = [a.id for a in atoms]
         payloads = [str(a.payload) for a in atoms]
@@ -42,6 +44,17 @@ class ColdTier:
         access_counts = [a.access_count for a in atoms]
         triples_str = [str(a.triples) for a in atoms]
 
+        schema = pa.schema([
+            ("id", pa.string()),
+            ("payload", pa.string()),
+            ("embedding", pa.list_(pa.int8())),
+            ("embedding_max", pa.float32()),
+            ("triples", pa.string()),
+            ("created_at", pa.float64()),
+            ("access_count", pa.int64()),
+            ("epoch_id", pa.string())
+        ])
+        
         table = pa.table({
             "id": ids,
             "payload": payloads,
@@ -51,13 +64,13 @@ class ColdTier:
             "created_at": created_ats,
             "access_count": access_counts,
             "epoch_id": [epoch_id] * len(atoms)
-        })
+        }, schema=schema)
         
         pq.write_table(table, file_path)
         logger.info(f"Serialized {len(atoms)} atoms to {file_path}")
 
     def load_epoch(self, epoch_id: str) -> List[UnifiedMemoryAtom]:
-        file_path = os.path.join(self.storage_dir, f"epoch_{epoch_id}.parquet")
+        file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
         if not os.path.exists(file_path):
             return []
             
@@ -91,7 +104,7 @@ class ColdTier:
     def get_all_epochs(self) -> List[str]:
         epochs = []
         for f in os.listdir(self.storage_dir):
-            if f.startswith("epoch_") and f.endswith(".parquet"):
-                epoch_id = f[len("epoch_"):-len(".parquet")]
+            if f.endswith(".parquet"):
+                epoch_id = f[:-len(".parquet")]
                 epochs.append(epoch_id)
         return epochs
