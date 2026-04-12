@@ -32,13 +32,13 @@ class RetrievalManager:
         if atom_id in self.hot_tier.atoms:
             return self.hot_tier.atoms[atom_id]
 
-        # Check Cold Tier, targeted by epoch.
-        atoms = self.cold_tier.load_epoch(epoch_id)
-        for a in atoms:
-            if a.id == atom_id:
-                # Apply any in-memory access delta accumulated since last checkpoint.
-                a.access_count += self._access_deltas.get(atom_id, 0)
-                return a
+        # Check Cold Tier using targeted metadata lookup
+        atoms = self.cold_tier.load_atom_metadata(epoch_id, [atom_id])
+        if atoms:
+            a = atoms[0]
+            # Apply any in-memory access delta accumulated since last checkpoint.
+            a.access_count += self._access_deltas.get(atom_id, 0)
+            return a
         return None
 
     def search(
@@ -63,29 +63,34 @@ class RetrievalManager:
                 score = 0.0
             candidates[atom.id] = (atom, float(score))
 
-        # --- 1b. Semantic Hook: Cold Tier ---
+        # --- Keyword-based Entity Extraction (Auto-Expansion) ---
+        # If no explicit entities are passed, we scan the query embedding surface 
+        # (or payload keywords) for matches in the Global KG to boost Factor C.
+        if not query_entities:
+            # We don't have the raw query text here, but we can use the Global KG 
+            # keys as a candidate set for heuristic matching if the user passed 
+            # an unpopulated set. For now, we rely on the expansion set below.
+            pass
+
+        # --- 1b. Semantic Hook: Cold Tier (Fast Indexed Search) ---
         epochs = self.cold_tier.get_all_epochs()
         for epoch in epochs:
-            cold_atoms = self.cold_tier.load_epoch(epoch)
-            if not cold_atoms:
-                continue
-
-            embeddings = np.array([a.embedding for a in cold_atoms])
-            norms = np.linalg.norm(embeddings, axis=1) * np.linalg.norm(query_emb)
-            norms = np.where(norms == 0, 1e-10, norms)
-            sims = np.dot(embeddings, query_emb) / norms
-
-            best_idx = np.argsort(sims)[-(top_k * 5):][::-1]
-            for idx in best_idx:
-                if sims[idx] > 0.1:
-                    atom = cold_atoms[idx]
-                    if len(atom.embedding) != len(query_emb):
-                        continue
-                    # Apply accumulated access-count delta for this cold atom.
+            # We fetch a larger pool to ensure corrections are captured for RRF fusion.
+            cold_hits = self.cold_tier.search_epoch(epoch, query_emb, top_k=top_k * 5)
+            for atom in cold_hits:
+                if len(atom.embedding) != len(query_emb):
+                    continue
+                    
+                sim = np.dot(atom.embedding, query_emb) / (
+                    np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10
+                )
+                if sim >= 0.1:
                     atom.access_count += self._access_deltas.get(atom.id, 0)
-                    candidates[atom.id] = (atom, float(sims[idx]))
+                    candidates[atom.id] = (atom, float(sim))
 
         # --- 2. Relational Expansion via Global KG ---
+        # This doubles as our Entity Extraction: if a candidate atom mentions an entity 
+        # that was also in our query (heuristically), it gets a Factor C boost.
         if expand_hops > 0:
             expansion_set = set(candidates.keys())
             for _ in range(expand_hops):
@@ -102,21 +107,26 @@ class RetrievalManager:
 
                     for ent in entities:
                         if ent in self.global_kg:
+                            # Group neighbor atoms by epoch for optimized loading
+                            epoch_to_atom_ids: Dict[str, List[str]] = {}
                             for neighbor_atom_id, epoch_id in self.global_kg[ent]:
                                 if neighbor_atom_id not in candidates:
-                                    n_atom = self._fetch_atom_by_id(
-                                        neighbor_atom_id, epoch_id
-                                    )
-                                    if n_atom and len(n_atom.embedding) == len(query_emb):
-                                        score = np.dot(
-                                            n_atom.embedding, query_emb
-                                        ) / (
-                                            np.linalg.norm(n_atom.embedding)
-                                            * np.linalg.norm(query_emb)
-                                            + 1e-10
+                                    if epoch_id not in epoch_to_atom_ids:
+                                        epoch_to_atom_ids[epoch_id] = []
+                                    epoch_to_atom_ids[epoch_id].append(neighbor_atom_id)
+                            
+                            for epoch_id, atom_ids in epoch_to_atom_ids.items():
+                                n_atoms = self.cold_tier.load_atom_metadata(epoch_id, atom_ids)
+                                for n_atom in n_atoms:
+                                    if len(n_atom.embedding) == len(query_emb):
+                                        sim = np.dot(n_atom.embedding, query_emb) / (
+                                            np.linalg.norm(n_atom.embedding) * np.linalg.norm(query_emb) + 1e-10
                                         )
+                                        # AUTO-BOOST: if we reached this atom via a KG hop, 
+                                        # it should count as an entity match for Factor C.
+                                        query_entities.add(ent)
                                         new_neighbors.add(n_atom.id)
-                                        candidates[n_atom.id] = (n_atom, float(score))
+                                        candidates[n_atom.id] = (n_atom, float(sim))
                 expansion_set = new_neighbors
 
         # --- 3. Payload Deduplication ---
@@ -133,17 +143,29 @@ class RetrievalManager:
         if not unique_results:
             return []
 
-        # --- 4. 3-Way Reciprocal Rank Fusion ---
+        # --- 4. 4-Way Fusion with Topic Locking & Supersession ---
+        K = 10  # Sharp distinctions
 
-        # Factor A: Semantic Similarity
+        # 1. Supersession Detection (State-Aware)
+        superseded_ids: Set[str] = set()
+        recency_sorted = sorted(unique_results, key=lambda x: x[0].created_at, reverse=True)
+        active_states: Dict[Tuple[str, str], str] = {}
+        for atom, _ in recency_sorted:
+            for s, p, o in atom.triples:
+                state_key = (str(s).lower(), str(p).lower())
+                if state_key in active_states:
+                    if active_states[state_key] != atom.id:
+                        superseded_ids.add(atom.id)
+                else:
+                    active_states[state_key] = atom.id
+
+        # 2. Base RRF Ranks
         unique_results.sort(key=lambda x: x[1], reverse=True)
         sem_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
 
-        # Factor B: Recency (Freshness)
         unique_results.sort(key=lambda x: x[0].created_at, reverse=True)
         recency_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
 
-        # Factor C: Entity Overlap with Query
         def get_overlap(atom: UnifiedMemoryAtom) -> int:
             atom_entities = set()
             for s, _, o in atom.triples:
@@ -154,16 +176,37 @@ class RetrievalManager:
         unique_results.sort(key=lambda x: get_overlap(x[0]), reverse=True)
         entity_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
 
-        K = 60
+        # 3. Discrete Topic Lock (Predicate Match)
+        def has_predicate_match(atom: UnifiedMemoryAtom) -> bool:
+            preds = {p.lower() for _, p, _ in atom.triples}
+            for qe in query_entities:
+                qe_l = qe.lower()
+                for p in preds:
+                    if qe_l in p or any(part in qe_l for part in p.split("_") if len(part) > 2):
+                        return True
+            return False
 
-        def multi_rrf_score(atom_id: str) -> float:
-            return (
+        def multi_rrf_score(atom: UnifiedMemoryAtom) -> float:
+            atom_id = atom.id
+            # Standard 3-Way RRF
+            score = (
                 1.0 / (K + sem_ranks[atom_id])
                 + 1.0 / (K + recency_ranks[atom_id])
                 + 1.0 / (K + entity_ranks[atom_id])
             )
+            
+            # THE NUCLEAR LOCK:
+            # If an atom matches the predicate (topic) of the query, it gets
+            # a massive discrete bonus that noise cannot overcome.
+            if has_predicate_match(atom):
+                score += 5.0
+            
+            if atom_id in superseded_ids:
+                score *= 0.001  # Total suppression of stale facts
+                
+            return score
 
-        unique_results.sort(key=lambda x: multi_rrf_score(x[0].id), reverse=True)
+        unique_results.sort(key=lambda x: multi_rrf_score(x[0]), reverse=True)
 
         # --- 5. Materialise Results & Update Access Counts ---
         final_atoms = []

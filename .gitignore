@@ -13,6 +13,7 @@ env/
 .epochdb*/
 .epochdb_agent/
 .epochdb_benchmark/
+.scaling_test_db/
 *.parquet
 
 # Benchmark assets 

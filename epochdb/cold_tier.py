@@ -3,7 +3,8 @@ import json
 import pyarrow as pa
 import pyarrow.parquet as pq
 import numpy as np
-from typing import List
+import hnswlib
+from typing import List, Optional
 from .atom import UnifiedMemoryAtom
 import logging
 
@@ -92,6 +93,31 @@ class ColdTier:
         pq.write_table(table, file_path, compression="ZSTD")
         logger.info(f"Serialized {len(atoms)} atoms to {file_path}")
 
+        # --- Persistent HNSW Index for this Epoch ---
+        self._build_hnsw_index(epoch_id, embeddings_f32)
+
+    def _build_hnsw_index(self, epoch_id: str, embeddings: np.ndarray):
+        """Builds and saves an hnswlib index for an epoch's embeddings."""
+        if embeddings.size == 0:
+            return
+
+        num_elements, dim = embeddings.shape
+        index_path = os.path.join(self.storage_dir, f"{epoch_id}.hnsw")
+
+        try:
+            # Use cosine space to match HotTier.
+            index = hnswlib.Index(space="cosine", dim=dim)
+            index.init_index(max_elements=num_elements, ef_construction=200, M=16)
+            
+            # Map labels to row indices (0 to N-1).
+            labels = np.arange(num_elements)
+            index.add_items(embeddings, labels)
+            
+            index.save_index(index_path)
+            logger.info(f"Saved HNSW index to {index_path}")
+        except Exception as e:
+            logger.error(f"Failed to build HNSW index for {epoch_id}: {e}")
+
     def load_epoch(self, epoch_id: str) -> List[UnifiedMemoryAtom]:
         file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
         if not os.path.exists(file_path):
@@ -102,38 +128,99 @@ class ColdTier:
 
         atoms = []
         for row in rows:
-            # Deserialize triples from JSON array-of-arrays.
-            try:
-                raw = json.loads(row["triples"])
-                triples = [tuple(t) for t in raw]
-            except (json.JSONDecodeError, TypeError, ValueError):
-                logger.warning(
-                    f"Failed to parse triples for atom {row.get('id')}; defaulting to []"
-                )
-                triples = []
-
-            # Deserialize payload from JSON — preserves dicts, lists, and strings.
-            try:
-                payload = json.loads(row["payload"])
-            except (json.JSONDecodeError, TypeError):
-                payload = row["payload"]  # Fallback: use raw string value.
-
-            # Dequantize INT8 embedding back to float32.
-            emb = np.array(row["embedding"], dtype=np.float32)
-            if "embedding_max" in row and row["embedding_max"] is not None:
-                emb = (emb / 127.0) * row["embedding_max"]
-
-            atom = UnifiedMemoryAtom(
-                id=row["id"],
-                payload=payload,
-                embedding=emb,
-                triples=triples,
-                created_at=row["created_at"],
-                access_count=row["access_count"],
-                epoch_id=row["epoch_id"],
-            )
-            atoms.append(atom)
+            atoms.append(self._row_to_atom(row))
         return atoms
+
+    def search_epoch(
+        self, epoch_id: str, query_emb: np.ndarray, top_k: int = 5
+    ) -> List[UnifiedMemoryAtom]:
+        """Queries an epoch using HNSW index; falls back to linear scan if unavailable."""
+        file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
+        index_path = os.path.join(self.storage_dir, f"{epoch_id}.hnsw")
+
+        if not os.path.exists(file_path):
+            return []
+
+        # Case 1: HNSW Fast Path
+        if os.path.exists(index_path):
+            try:
+                # Load index (on-demand to save static RAM)
+                index = hnswlib.Index(space="cosine", dim=len(query_emb))
+                index.load_index(index_path)
+                
+                num_elements = index.element_count
+                actual_k = min(top_k, num_elements)
+                labels, distances = index.knn_query(query_emb, k=actual_k)
+                
+                # Load only the specific rows from Parquet
+                table = pq.read_table(file_path)
+                indices = pa.array(labels[0].tolist(), type=pa.int64())
+                rows_table = table.take(indices)
+                rows = rows_table.to_pylist()
+                
+                atoms = []
+                for i, row in enumerate(rows):
+                    atoms.append(self._row_to_atom(row))
+                return atoms
+            except Exception as e:
+                logger.error(f"HNSW query failed for {epoch_id}, falling back to linear: {e}")
+
+        # Case 2: Linear Fallback (Legacy or Failed)
+        atoms = self.load_epoch(epoch_id)
+        if not atoms:
+            return []
+
+        scored = []
+        for atom in atoms:
+            sim = 1.0 - np.dot(query_emb, atom.embedding) / (
+                np.linalg.norm(query_emb) * np.linalg.norm(atom.embedding) + 1e-9
+            )
+            scored.append((sim, atom))
+        
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [a for _, a in scored[:top_k]]
+
+    def load_atom_metadata(self, epoch_id: str, atom_ids: List[str]) -> List[UnifiedMemoryAtom]:
+        """Efficiently loads specific atoms by ID from an epoch."""
+        file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
+        if not os.path.exists(file_path):
+            return []
+        
+        table = pq.read_table(file_path)
+        # Using pyarrow compute to find indices by ID
+        import pyarrow.compute as pc
+        mask = pc.is_in(table["id"], value_set=pa.array(atom_ids))
+        filtered_table = table.filter(mask)
+        
+        return [self._row_to_atom(row) for row in filtered_table.to_pylist()]
+
+    def _row_to_atom(self, row: dict) -> UnifiedMemoryAtom:
+        """Helper to convert a parquet row dict to UnifiedMemoryAtom."""
+        try:
+            raw = json.loads(row["triples"])
+            triples = [tuple(t) for t in raw]
+        except (json.JSONDecodeError, TypeError, ValueError):
+            triples = []
+
+        try:
+            payload = json.loads(row["payload"])
+        except (json.JSONDecodeError, TypeError):
+            payload = row["payload"]
+
+        # Dequantize INT8 embedding
+        emb = np.array(row["embedding"], dtype=np.float32)
+        if "embedding_max" in row and row["embedding_max"] is not None:
+            emb = (emb / 127.0) * row["embedding_max"]
+
+        return UnifiedMemoryAtom(
+            id=row["id"],
+            payload=payload,
+            embedding=emb,
+            triples=triples,
+            created_at=row["created_at"],
+            access_count=row["access_count"],
+            epoch_id=row["epoch_id"],
+        )
 
     def get_all_epochs(self) -> List[str]:
         epochs = []

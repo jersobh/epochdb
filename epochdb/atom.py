@@ -10,7 +10,7 @@ class UnifiedMemoryAtom:
     payload: Any = None
     embedding: np.ndarray = field(default_factory=lambda: np.array([]))
     triples: List[Tuple[str, str, str]] = field(default_factory=list)
-    created_at: float = field(default_factory=time.time)
+    created_at: float = 0.0
     access_count: int = 0
     epoch_id: str = "active"
 
