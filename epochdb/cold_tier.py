@@ -1,33 +1,43 @@
 import os
+import json
 import pyarrow as pa
 import pyarrow.parquet as pq
 import numpy as np
-from typing import List, Dict
+from typing import List
 from .atom import UnifiedMemoryAtom
 import logging
 
 logger = logging.getLogger(__name__)
 
+
 class ColdTier:
     """
     L2 Historical Archive. Resides on Disk.
-    Uses Parquet format.
+    Uses Parquet format with Zstd compression and INT8 quantization.
     """
+
     def __init__(self, storage_dir: str):
         self.storage_dir = storage_dir
         os.makedirs(self.storage_dir, exist_ok=True)
-    
+
     def serialize_epoch(self, epoch_id: str, atoms: List[UnifiedMemoryAtom]):
         """Flushes hot partition to Parquet blocks."""
         if not atoms:
             return
-            
-        # Ensure epoch_id is used as the filename base. 
-        # Filename will be <epoch_id>.parquet (e.g. epoch_123.parquet)
+
         file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
-        
+
         ids = [a.id for a in atoms]
-        payloads = [str(a.payload) for a in atoms]
+
+        # Payloads: stored as JSON strings for safe round-trip of dicts/lists/strings.
+        payloads = []
+        for a in atoms:
+            try:
+                payloads.append(json.dumps(a.payload))
+            except (TypeError, ValueError):
+                payloads.append(json.dumps(str(a.payload)))
+
+        # INT8 Scalar Quantization for embeddings.
         embeddings_f32 = np.array([a.embedding for a in atoms], dtype=np.float32)
         if len(atoms) > 0 and embeddings_f32.size > 0:
             max_vals = np.abs(embeddings_f32).max(axis=1, keepdims=True)
@@ -39,64 +49,88 @@ class ColdTier:
         else:
             embeddings = []
             embedding_maxes = []
-        
+
         created_ats = [a.created_at for a in atoms]
         access_counts = [a.access_count for a in atoms]
-        triples_str = [str(a.triples) for a in atoms]
 
-        schema = pa.schema([
-            ("id", pa.string()),
-            ("payload", pa.string()),
-            ("embedding", pa.list_(pa.int8())),
-            ("embedding_max", pa.float32()),
-            ("triples", pa.string()),
-            ("created_at", pa.float64()),
-            ("access_count", pa.int64()),
-            ("epoch_id", pa.string())
-        ])
-        
-        table = pa.table({
-            "id": ids,
-            "payload": payloads,
-            "embedding": embeddings,
-            "embedding_max": embedding_maxes,
-            "triples": triples_str,
-            "created_at": created_ats,
-            "access_count": access_counts,
-            "epoch_id": [epoch_id] * len(atoms)
-        }, schema=schema)
-        
-        pq.write_table(table, file_path, compression='ZSTD')
+        # Triples: stored as JSON arrays (list-of-lists) for safe round-trip.
+        # This handles entity strings with quotes, backslashes, or unicode correctly.
+        triples_json = []
+        for a in atoms:
+            try:
+                triples_json.append(json.dumps([list(t) for t in a.triples]))
+            except (TypeError, ValueError):
+                triples_json.append("[]")
+
+        schema = pa.schema(
+            [
+                ("id", pa.string()),
+                ("payload", pa.string()),
+                ("embedding", pa.list_(pa.int8())),
+                ("embedding_max", pa.float32()),
+                ("triples", pa.string()),
+                ("created_at", pa.float64()),
+                ("access_count", pa.int64()),
+                ("epoch_id", pa.string()),
+            ]
+        )
+
+        table = pa.table(
+            {
+                "id": ids,
+                "payload": payloads,
+                "embedding": embeddings,
+                "embedding_max": embedding_maxes,
+                "triples": triples_json,
+                "created_at": created_ats,
+                "access_count": access_counts,
+                "epoch_id": [epoch_id] * len(atoms),
+            },
+            schema=schema,
+        )
+
+        pq.write_table(table, file_path, compression="ZSTD")
         logger.info(f"Serialized {len(atoms)} atoms to {file_path}")
 
     def load_epoch(self, epoch_id: str) -> List[UnifiedMemoryAtom]:
         file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
         if not os.path.exists(file_path):
             return []
-            
+
         table = pq.read_table(file_path)
         rows = table.to_pylist()
-        
+
         atoms = []
-        import ast
         for row in rows:
+            # Deserialize triples from JSON array-of-arrays.
             try:
-                triples = ast.literal_eval(row['triples'])
-            except:
+                raw = json.loads(row["triples"])
+                triples = [tuple(t) for t in raw]
+            except (json.JSONDecodeError, TypeError, ValueError):
+                logger.warning(
+                    f"Failed to parse triples for atom {row.get('id')}; defaulting to []"
+                )
                 triples = []
-                
-            emb = np.array(row['embedding'], dtype=np.float32)
-            if 'embedding_max' in row and row['embedding_max'] is not None:
-                emb = (emb / 127.0) * row['embedding_max']
+
+            # Deserialize payload from JSON — preserves dicts, lists, and strings.
+            try:
+                payload = json.loads(row["payload"])
+            except (json.JSONDecodeError, TypeError):
+                payload = row["payload"]  # Fallback: use raw string value.
+
+            # Dequantize INT8 embedding back to float32.
+            emb = np.array(row["embedding"], dtype=np.float32)
+            if "embedding_max" in row and row["embedding_max"] is not None:
+                emb = (emb / 127.0) * row["embedding_max"]
 
             atom = UnifiedMemoryAtom(
-                id=row['id'],
-                payload=row['payload'],
+                id=row["id"],
+                payload=payload,
                 embedding=emb,
                 triples=triples,
-                created_at=row['created_at'],
-                access_count=row['access_count'],
-                epoch_id=row['epoch_id']
+                created_at=row["created_at"],
+                access_count=row["access_count"],
+                epoch_id=row["epoch_id"],
             )
             atoms.append(atom)
         return atoms
@@ -105,6 +139,6 @@ class ColdTier:
         epochs = []
         for f in os.listdir(self.storage_dir):
             if f.endswith(".parquet"):
-                epoch_id = f[:-len(".parquet")]
+                epoch_id = f[: -len(".parquet")]
                 epochs.append(epoch_id)
         return epochs

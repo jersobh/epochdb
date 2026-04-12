@@ -2,6 +2,9 @@ import os
 import shutil
 import pytest
 import numpy as np
+
+langgraph = pytest.importorskip("langgraph", reason="langgraph not installed (pip install epochdb[langgraph])")
+
 from epochdb import EpochDB
 from epochdb.checkpointer import EpochDBCheckpointer
 

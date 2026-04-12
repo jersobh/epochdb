@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "epochdb"
-version = "0.3.0"
+version = "0.4.0"
 description = "An agentic memory engine designed for lossless, tiered verbatim storage and multi-hop retrieval."
 readme = "README.md"
 license = { text = "MIT License" }
@@ -17,16 +17,28 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+
+# Core runtime dependencies only.
 dependencies = [
     "numpy",
     "pyarrow",
     "hnswlib",
-    "langgraph",
-    "sentence-transformers",
+    "zstandard",
     "requests",
-    "pytest",
-    "zstandard"
 ]
 
+[project.optional-dependencies]
+# Auto-embedding convenience (remember / recall_text).
+embeddings = ["sentence-transformers"]
+
+# Native LangGraph checkpointer.
+langgraph = ["langgraph"]
+
+# Install everything (recommended for most agent use-cases).
+all = ["sentence-transformers", "langgraph"]
+
+# Development tools.
+dev = ["pytest", "sentence-transformers", "langgraph"]
+
 [project.urls]
-"Homepage" = "https://github.com/jeff/epochdb"
+"Homepage" = "https://github.com/jersobh/epochdb"
