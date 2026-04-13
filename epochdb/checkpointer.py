@@ -2,8 +2,9 @@ import os
 import json
 import base64
 import logging
+import asyncio
 from datetime import datetime, timezone
-from typing import Any, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, AsyncIterator, Iterator, List, Optional, Sequence, Tuple
 
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
@@ -182,6 +183,10 @@ class EpochDBCheckpointer(BaseCheckpointSaver):
             parent_config=data.get("parent_config"),
         )
 
+    async def aget_tuple(self, config: dict) -> Optional[CheckpointTuple]:
+        """Asynchronously retrieve a checkpoint tuple."""
+        return await asyncio.to_thread(self.get_tuple, config)
+
     def list(
         self,
         config: dict,
@@ -206,6 +211,18 @@ class EpochDBCheckpointer(BaseCheckpointSaver):
             if tup:
                 yield tup
                 count += 1
+
+    async def alist(
+        self,
+        config: dict,
+        *,
+        before: Optional[dict] = None,
+        limit: Optional[int] = None,
+    ) -> AsyncIterator[CheckpointTuple]:
+        """Asynchronously list checkpoints for a thread."""
+        # Simple implementation: run the synchronous generator and yield from it
+        for tup in self.list(config, before=before, limit=limit):
+            yield tup
 
     def put(
         self,
@@ -238,6 +255,18 @@ class EpochDBCheckpointer(BaseCheckpointSaver):
             }
         }
 
+    async def aput(
+        self,
+        config: dict,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: dict,
+    ) -> dict:
+        """Asynchronously serialise and store a checkpoint."""
+        return await asyncio.to_thread(
+            self.put, config, checkpoint, metadata, new_versions
+        )
+
     def put_writes(
         self,
         config: dict,
@@ -259,3 +288,15 @@ class EpochDBCheckpointer(BaseCheckpointSaver):
         path = self._writes_path(thread_id, checkpoint_id, task_id)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(serialized, f)
+
+    async def aput_writes(
+        self,
+        config: dict,
+        writes: Sequence[tuple],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        """Asynchronously store intermediate writes."""
+        return await asyncio.to_thread(
+            self.put_writes, config, writes, task_id, task_path
+        )

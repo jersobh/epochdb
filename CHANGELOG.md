@@ -2,6 +2,10 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [0.4.2] - 2026-04-13
+### Added
+- **Async Support for LangGraph Checkpointer**: Native async methods (`aget_tuple`, `alist`, `aput`, `aput_writes`) using `asyncio.to_thread` for non-blocking I/O in agentic workflows.
+
 ## [0.4.1] - 2026-04-13
 ### Added
 - **Entity Seeding (Topic Hook)**: Architectural upgrade to retrieval logic that seeds candidates from `query_entities` via the Global KG, ensuring relevant facts outrank semantic noise.
