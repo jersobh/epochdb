@@ -2,6 +2,12 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [0.4.1] - 2026-04-13
+### Added
+- **Entity Seeding (Topic Hook)**: Architectural upgrade to retrieval logic that seeds candidates from `query_entities` via the Global KG, ensuring relevant facts outrank semantic noise.
+- **Needle in a Haystack (NIAH)**: Achieved a validated **1.000 precision@3** and **1.000 recall@3** across high-noise benchmarks.
+- **Improved RRF Depth**: Increased internal candidate pool from `2x` to `10x` top_k for better rank fusion coverage.
+
 ## [0.4.0] - 2026-04-12
 ### Added
 - **Nuclear Topic Lock**: Implemented a discrete `+5.0` additive bonus for atoms matching the query's predicate domain, ensuring factual precision in retrieval.

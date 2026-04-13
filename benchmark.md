@@ -1,4 +1,4 @@
-# EpochDB v0.4.0 — Benchmark Results
+# EpochDB v0.4.1 — Benchmark Results
 
 All benchmarks run end-to-end using **Gemini embedding-2-preview (3072D)**
 via the Gemini API. No external corpus or cloud vector database required.
@@ -160,7 +160,7 @@ reallocation), which is a correct retrieval surface — the signal facts are
 
 ### ConvoMem — Conversational Memory Recall
 
-**recall@3**: `0.400` (2/5 conversations correct)
+**recall@3**: `0.4.1` (2/5 conversations correct)
 
 5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
 Includes preference updates and corrections (tests most-recent-fact recall).
@@ -181,7 +181,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 | Benchmark | Metric | Result |
 |---|---|---|
 | LoCoMo | Multi-hop recall | `1.000` |
-| ConvoMem | recall@3 | `0.400` |
+| ConvoMem | recall@3 | `0.4.1` |
 | LongMemEval | recall@3 | `1.000` |
 
 ---
@@ -212,7 +212,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 
 ### ConvoMem — Conversational Memory Recall
 
-**recall@3**: `0.400` (2/5 conversations correct)
+**recall@3**: `0.4.1` (2/5 conversations correct)
 
 5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
 Includes preference updates and corrections (tests most-recent-fact recall).
@@ -233,7 +233,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 | Benchmark | Metric | Result |
 |---|---|---|
 | LoCoMo | Multi-hop recall | `1.000` |
-| ConvoMem | recall@3 | `0.400` |
+| ConvoMem | recall@3 | `0.4.1` |
 | LongMemEval | recall@3 | `1.000` |
 
 ---
@@ -264,7 +264,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 
 ### ConvoMem — Conversational Memory Recall
 
-**recall@3**: `0.400` (2/5 conversations correct)
+**recall@3**: `0.4.1` (2/5 conversations correct)
 
 5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
 Includes preference updates and corrections (tests most-recent-fact recall).
@@ -285,7 +285,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 | Benchmark | Metric | Result |
 |---|---|---|
 | LoCoMo | Multi-hop recall | `1.000` |
-| ConvoMem | recall@3 | `0.400` |
+| ConvoMem | recall@3 | `0.4.1` |
 | LongMemEval | recall@3 | `1.000` |
 
 ---
@@ -316,7 +316,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 
 ### ConvoMem — Conversational Memory Recall
 
-**recall@3**: `0.400` (2/5 conversations correct)
+**recall@3**: `0.4.1` (2/5 conversations correct)
 
 5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
 Includes preference updates and corrections (tests most-recent-fact recall).
@@ -337,7 +337,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 | Benchmark | Metric | Result |
 |---|---|---|
 | LoCoMo | Multi-hop recall | `1.000` |
-| ConvoMem | recall@3 | `0.400` |
+| ConvoMem | recall@3 | `0.4.1` |
 | LongMemEval | recall@3 | `1.000` |
 
 ---
@@ -368,7 +368,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 
 ### ConvoMem — Conversational Memory Recall
 
-**recall@3**: `0.400` (2/5 conversations correct)
+**recall@3**: `0.4.1` (2/5 conversations correct)
 
 5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
 Includes preference updates and corrections (tests most-recent-fact recall).
@@ -389,7 +389,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 | Benchmark | Metric | Result |
 |---|---|---|
 | LoCoMo | Multi-hop recall | `1.000` |
-| ConvoMem | recall@3 | `0.400` |
+| ConvoMem | recall@3 | `0.4.1` |
 | LongMemEval | recall@3 | `1.000` |
 
 ---
@@ -420,7 +420,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 
 ### ConvoMem — Conversational Memory Recall
 
-**recall@3**: `0.400` (2/5 conversations correct)
+**recall@3**: `0.4.1` (2/5 conversations correct)
 
 5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
 Includes preference updates and corrections (tests most-recent-fact recall).
@@ -441,7 +441,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 | Benchmark | Metric | Result |
 |---|---|---|
 | LoCoMo | Multi-hop recall | `1.000` |
-| ConvoMem | recall@3 | `0.400` |
+| ConvoMem | recall@3 | `0.4.1` |
 | LongMemEval | recall@3 | `1.000` |
 
 ---
@@ -472,7 +472,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 
 ### ConvoMem — Conversational Memory Recall
 
-**recall@3**: `0.400` (2/5 conversations correct)
+**recall@3**: `0.4.1` (2/5 conversations correct)
 
 5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
 Includes preference updates and corrections (tests most-recent-fact recall).
@@ -493,7 +493,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 | Benchmark | Metric | Result |
 |---|---|---|
 | LoCoMo | Multi-hop recall | `1.000` |
-| ConvoMem | recall@3 | `0.400` |
+| ConvoMem | recall@3 | `0.4.1` |
 | LongMemEval | recall@3 | `1.000` |
 
 ---
@@ -524,7 +524,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 
 ### ConvoMem — Conversational Memory Recall
 
-**recall@3**: `0.400` (2/5 conversations correct)
+**recall@3**: `0.4.1` (2/5 conversations correct)
 
 5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
 Includes preference updates and corrections (tests most-recent-fact recall).
@@ -545,7 +545,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 | Benchmark | Metric | Result |
 |---|---|---|
 | LoCoMo | Multi-hop recall | `1.000` |
-| ConvoMem | recall@3 | `0.400` |
+| ConvoMem | recall@3 | `0.4.1` |
 | LongMemEval | recall@3 | `0.750` |
 
 ---
@@ -576,7 +576,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 
 ### ConvoMem — Conversational Memory Recall
 
-**recall@3**: `0.400` (2/5 conversations correct)
+**recall@3**: `0.4.1` (2/5 conversations correct)
 
 5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
 Includes preference updates and corrections (tests most-recent-fact recall).
@@ -597,7 +597,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 | Benchmark | Metric | Result |
 |---|---|---|
 | LoCoMo | Multi-hop recall | `1.000` |
-| ConvoMem | recall@3 | `0.400` |
+| ConvoMem | recall@3 | `0.4.1` |
 | LongMemEval | recall@3 | `1.000` |
 
 ---
@@ -1119,3 +1119,289 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 | LoCoMo | Multi-hop recall | `1.000` |
 | ConvoMem | recall@3 | `1.000` |
 | LongMemEval | recall@3 | `1.000` |
+
+---
+
+## Benchmark Run — 2026-04-13 10:25 UTC
+
+> Embeddings: `gemini-embedding-2-preview` (3072D) · Gemini API calls: 63 · Wall time: 127.9s
+
+### 1. Multi-Hop Relational Reasoning
+
+5-link chain: `Alice → Team Aurora → Project Helios → Quantum Core → Dr. Chen → IAC`  
+Query: *"Which research institute is connected to Alice's project?"* (semantically distant from target)
+
+| Hops | recall@1 | Latency |
+|---|---|---|
+| 0 | 1.000 | 0.4 ms |
+| 1 | 1.000 | 0.2 ms |
+| 2 | 1.000 | 0.2 ms |
+| 3 | 1.000 | 0.2 ms |
+| 4 | 1.000 | 0.2 ms |
+| 5 | 1.000 | 0.2 ms |
+
+**Result**: Target `IAC` first reached at hop depth **0**.
+
+### 2. Cross-Epoch Long-Term Memory
+
+8 facts ingested in Session 1, flushed to Cold Tier (Hot Tier cleared). Queried in Session 2.
+
+- **recall@3**: `0.667`
+- **Cold Tier avg query latency**: `35.6 ms`
+
+### 3. Needle in a Haystack
+
+2 signal facts hidden among 20 noise facts (same semantic domain).  
+Query targets the specific signal entity via semantic + KG expansion.
+
+- **precision@3**: `0.667` (2/3 results are signal)
+
+### 4. Storage Efficiency
+
+20 atoms × 3072D embeddings, INT8 quantized + Zstd compressed in Parquet.
+
+| Metric | Value |
+|---|---|
+| Raw float32 size | `245,760 bytes` |
+| Compressed (INT8+Zstd) | `47,328 bytes` |
+| Compression ratio | **5.2×** |
+
+### 5. WAL Crash Recovery
+
+3 uncommitted atoms written to WAL, process killed without `close()`.
+
+- **Atoms recovered**: `3/3`
+- **Replay latency**: `8.2 ms`
+- **Result**: ✓ Zero data loss
+
+---
+
+## Benchmark Run — 2026-04-13 11:31 UTC
+
+> Embeddings: `gemini-embedding-2-preview` (3072D) · Gemini API calls: 64 · Wall time: 132.0s
+
+### 1. Multi-Hop Relational Reasoning
+
+5-link chain: `Alice → Team Aurora → Project Helios → Quantum Core → Dr. Chen → IAC`  
+Query: *"Which research institute is connected to Alice's project?"* (semantically distant from target)
+
+| Hops | recall@1 | Latency |
+|---|---|---|
+| 0 | 1.000 | 0.6 ms |
+| 1 | 1.000 | 0.4 ms |
+| 2 | 1.000 | 0.3 ms |
+| 3 | 1.000 | 0.4 ms |
+| 4 | 1.000 | 0.4 ms |
+| 5 | 1.000 | 0.3 ms |
+
+**Result**: Target `IAC` first reached at hop depth **0**.
+
+### 2. Cross-Epoch Long-Term Memory
+
+8 facts ingested in Session 1, flushed to Cold Tier (Hot Tier cleared). Queried in Session 2.
+
+- **recall@3**: `0.667`
+- **Cold Tier avg query latency**: `34.3 ms`
+
+### 3. Needle in a Haystack
+
+2 signal facts hidden among 20 noise facts (same semantic domain).  
+Query targets the specific signal entity via semantic + KG expansion.
+
+- **precision@3**: `0.667` (2/3 results are signal)
+
+### 4. Storage Efficiency
+
+20 atoms × 3072D embeddings, INT8 quantized + Zstd compressed in Parquet.
+
+| Metric | Value |
+|---|---|
+| Raw float32 size | `245,760 bytes` |
+| Compressed (INT8+Zstd) | `47,333 bytes` |
+| Compression ratio | **5.2×** |
+
+### 5. WAL Crash Recovery
+
+3 uncommitted atoms written to WAL, process killed without `close()`.
+
+- **Atoms recovered**: `3/3`
+- **Replay latency**: `19.8 ms`
+- **Result**: ✓ Zero data loss
+
+---
+
+## Benchmark Run — 2026-04-13 11:34 UTC
+
+> Embeddings: `gemini-embedding-2-preview` (3072D) · Gemini API calls: 64 · Wall time: 166.0s
+
+### 1. Multi-Hop Relational Reasoning
+
+5-link chain: `Alice → Team Aurora → Project Helios → Quantum Core → Dr. Chen → IAC`  
+Query: *"Which research institute is connected to Alice's project?"* (semantically distant from target)
+
+| Hops | recall@1 | Latency |
+|---|---|---|
+| 0 | 1.000 | 0.4 ms |
+| 1 | 1.000 | 0.2 ms |
+| 2 | 1.000 | 0.2 ms |
+| 3 | 1.000 | 0.2 ms |
+| 4 | 1.000 | 0.2 ms |
+| 5 | 1.000 | 0.2 ms |
+
+**Result**: Target `IAC` first reached at hop depth **0**.
+
+### 2. Cross-Epoch Long-Term Memory
+
+8 facts ingested in Session 1, flushed to Cold Tier (Hot Tier cleared). Queried in Session 2.
+
+- **recall@3**: `0.667`
+- **Cold Tier avg query latency**: `28.8 ms`
+
+### 3. Needle in a Haystack
+
+2 signal facts hidden among 20 noise facts (same semantic domain).  
+Query targets the specific signal entity via semantic + KG expansion.
+
+- **precision@3**: `1.000` (3/3 results are signal)
+
+### 4. Storage Efficiency
+
+20 atoms × 3072D embeddings, INT8 quantized + Zstd compressed in Parquet.
+
+| Metric | Value |
+|---|---|
+| Raw float32 size | `245,760 bytes` |
+| Compressed (INT8+Zstd) | `47,347 bytes` |
+| Compression ratio | **5.2×** |
+
+### 5. WAL Crash Recovery
+
+3 uncommitted atoms written to WAL, process killed without `close()`.
+
+- **Atoms recovered**: `3/3`
+- **Replay latency**: `9.6 ms`
+- **Result**: ✓ Zero data loss
+
+---
+
+## Named Benchmark Suite — 2026-04-13 11:37 UTC
+
+> Embeddings: `gemini-embedding-2-preview` (3072D)  
+> Gemini API calls: 91  ·  Wall time: 183.7s  
+> All data self-contained (no external HuggingFace datasets required)
+
+---
+
+### LoCoMo — Multi-Hop Relational Reasoning
+
+**Aggregate recall**: `1.000` (3/3 chains)
+
+| Chain (target) | Found at hop | Pass |
+|---|---|---|
+| Chain 1 (Helion) | 0 | ✓ |
+| Chain 2 (Dr. Chen) | 0 | ✓ |
+| Chain 3 (CRISPR-X) | 0 | ✓ |
+
+> LoCoMo queries are deliberately semantically distant from their targets.
+> Only Knowledge Graph traversal can retrieve the answer — flat vector stores
+> return 0 by design on these queries.
+
+---
+
+### ConvoMem — Conversational Memory Recall
+
+**recall@3**: `1.000` (5/5 conversations correct)
+
+5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
+Includes preference updates and corrections (tests most-recent-fact recall).
+
+---
+
+### LongMemEval — Longitudinal Session Memory
+
+**recall@3**: `1.000` (4/4 QA pairs correct)
+
+4 sessions ingested with epoch checkpoints between each.
+All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
+
+---
+
+### Needle in a Haystack — Retrieval Precision
+
+**precision@3**: `1.000` (3/3 results are signal)
+
+3 signal facts hidden among 50 noise facts.  
+Evaluation uses Entity Hook seeding to ensure Topic Lock.
+
+---
+
+### Summary
+
+| Benchmark | Metric | Result |
+|---|---|---|
+| LoCoMo | Multi-hop recall | `1.000` |
+| ConvoMem | recall@3 | `1.000` |
+| LongMemEval | recall@3 | `1.000` |
+| NIAH | precision@3 | `1.000` |
+
+---
+
+## Named Benchmark Suite — 2026-04-13 11:52 UTC
+
+> Embeddings: `gemini-embedding-2-preview` (3072D)  
+> Gemini API calls: 91  ·  Wall time: 111.2s  
+> All data self-contained (no external HuggingFace datasets required)
+
+---
+
+### LoCoMo — Multi-Hop Relational Reasoning
+
+**Aggregate recall**: `1.000` (3/3 chains)
+
+| Chain (target) | Found at hop | Pass |
+|---|---|---|
+| Chain 1 (Helion) | 0 | ✓ |
+| Chain 2 (Dr. Chen) | 0 | ✓ |
+| Chain 3 (CRISPR-X) | 0 | ✓ |
+
+> LoCoMo queries are deliberately semantically distant from their targets.
+> Only Knowledge Graph traversal can retrieve the answer — flat vector stores
+> return 0 by design on these queries.
+
+---
+
+### ConvoMem — Conversational Memory Recall
+
+**recall@3**: `1.000` (5/5 conversations correct)
+
+5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
+Includes preference updates and corrections (tests most-recent-fact recall).
+
+---
+
+### LongMemEval — Longitudinal Session Memory
+
+**recall@3**: `1.000` (4/4 QA pairs correct)
+
+4 sessions ingested with epoch checkpoints between each.
+All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
+
+---
+
+### Needle in a Haystack — Retrieval Precision
+
+**precision@3**: `1.000` (3/3 results are signal)
+
+3 signal facts hidden among 50 noise facts.  
+Evaluation uses Entity Hook seeding to ensure Topic Lock.
+
+---
+
+### Summary
+
+| Benchmark | Metric | Result |
+|---|---|---|
+| LoCoMo | Multi-hop recall | `1.000` |
+| ConvoMem | recall@3 | `1.000` |
+| LongMemEval | recall@3 | `1.000` |
+| NIAH | precision@3 | `1.000` |

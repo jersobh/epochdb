@@ -1,5 +1,5 @@
 """
-example_advanced.py — EpochDB v0.4.0 Advanced Features Showcase
+example_advanced.py — EpochDB v0.4.1 Advanced Features Showcase
 ================================================================
 Demonstrates:
   • Cross-epoch multi-hop reasoning over a corporate Knowledge Base
@@ -118,7 +118,7 @@ def main():
         shutil.rmtree(db_dir)
 
     print("╔══════════════════════════════════════════════════════════╗")
-    print("║     EpochDB v0.4.0 — Advanced Corporate KB Demo          ║")
+    print("║     EpochDB v0.4.1 — Advanced Corporate KB Demo          ║")
     print("╚══════════════════════════════════════════════════════════╝\n")
 
     db = EpochDB(storage_dir=db_dir, dim=DIM)

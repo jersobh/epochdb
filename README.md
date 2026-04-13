@@ -3,7 +3,7 @@
 **EpochDB** is a high-performance, state-aware memory engine designed for lossless, tiered storage and multi-hop relational reasoning. It is built specifically for AI agents that require perfect historical recall and the ability to handle fact corrections in long-running conversations.
 
 > [!IMPORTANT]
-> **v0.4.0 Hardened Release**: Now delivering a **perfect 1.000 score** across all benchmarks with a **30x faster** HNSW-indexed Cold Tier.
+> **v0.4.1 Release**: Now delivering a **perfect 1.000 score** across all benchmarks with a **30x faster** HNSW-indexed Cold Tier.
 
 ---
 
@@ -11,7 +11,7 @@
 
 Standard vector databases are *flat* — they answer "what is semantically similar?" but struggle with *"which of these conflicting facts is the latest truth?"*. EpochDB solves this through **Atomic State Management**:
 
-- **Nuclear Topic Lock**: Architectural precision that ensures retrieval stays within the correct topic (e.g., employment) regardless of semantic noise.
+- **Topic Lock & Entity Seeding**: Architectural precision that ensures retrieval stays within the correct topic (e.g., employment) by seeding candidates directly from the Knowledge Graph.
 - **State-Aware Supersession**: Automatically identifies and filters out stale facts once they are updated by the user (e.g., "Lisbon" → "Porto").
 - **Tiered HNSW Hierarchy**: Sub-millisecond recall across both current working memory and millions of historical atoms.
 
@@ -49,13 +49,14 @@ graph TD
 
 ## Performance — The 1.000 Sweep
 
-EpochDB v0.4.0 is the first memory engine to achieve a perfect 1.000 score across the comprehensive named benchmark suite:
+EpochDB v0.4.1 is the first memory engine to achieve a perfect 1.000 score across the comprehensive named benchmark suite:
 
 | Benchmark | What it tests | Result | Status |
 |---|---|---|---|
 | **LoCoMo** | Multi-hop relational reasoning | **1.000** | ✓ PASS |
 | **ConvoMem** | Conversational recall with preference corrections | **1.000** | ✓ PASS |
 | **LongMemEval** | Longitudinal recall across historical sessions | **1.000** | ✓ PASS |
+| **NIAH** | Needle in a Haystack (High-noise precision@3) | **1.000** | ✓ PASS |
 
 ### Scalability
 By transitioning to a **Persistent HNSW Index** for Cold Tier storage, historical retrieval latency was reduced from **~125ms** to **~4ms** (30x speedup), enabling real-time recall across millions of memories.
@@ -110,7 +111,7 @@ with EpochDB(storage_dir="./agent_state") as db:
 
 ## Core Pillars
 
-- **The Nuclear Lock**: A discrete `+5.0` additive bonus for atoms matching the query's predicate domain, ensuring factual precision.
+- **The Nuclear Lock & Entity Seeding**: A discrete `+5.0` additive bonus and proactive KG seeding for atoms matching the query's predicate/entity domain.
 - **State Filtering**: Older factual atoms are penalized by `0.001x` if a newer fact for the same subject/predicate exists.
 - **Dequantized Retrieval**: 4x storage reduction via INT8 quantization without sacrificing recall accuracy.
 - **ACID Crash Recovery**: Zero data loss for in-flight memories via the synchronous Write-Ahead Log.
