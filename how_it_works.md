@@ -102,10 +102,11 @@ The entire write (WAL + HNSW + KG) is wrapped in a `MultiIndexTransaction` conte
 
 ```mermaid
 graph LR
-    Q([Query embedding]) --> S1[Hot Tier HNSW\ntop_k × 2 candidates]
-    Q --> S2[Cold Tier brute-force\ntop_k × 5 per epoch]
+    Q([Query embedding]) --> S1[Hot Tier HNSW\ntop_k × 10 candidates]
+    Q --> S1a[Global KG Entity Hook\nSeed candidates from query_entities]
+    Q --> S2[Cold Tier brute-force\ntop_k × 10 per epoch]
 
-    S1 & S2 --> C[Candidate Pool]
+    S1 & S1a & S2 --> C[Candidate Pool]
 
     C --> E{expand_hops > 0?}
     E -->|Yes| KG[Traverse Global KG\nN hops]
@@ -119,8 +120,9 @@ graph LR
 
 Both tiers are searched simultaneously:
 
-- **Hot Tier**: `hnswlib.knn_query` returns the most relevant recent hits.
-- **Cold Tier**: Each epoch's `.hnsw` index is queried. We aggregate candidates from across all historical epochs, bypassing linear Parquet scans.
+- **Hot Tier**: `hnswlib.knn_query` returns the most relevant recent hits. We fetch a large pool (`top_k * 10`) to provide surface area for rank fusion.
+- **Stage 1a — Entity Hook (Topic Lock Seeding)**: If the user provides explicit `query_entities`, the engine proactively seeds the candidate pool by pulling ALL atoms associated with those entities in the Global KG. This ensures that even semantically distant facts (the "Needle") are always considered if they belong to the requested topic.
+- **Cold Tier**: Each epoch's `.hnsw` index is queried (`top_k * 10`). We aggregate candidates from across all historical epochs, bypassing linear Parquet scans.
 
 ### Stage 3 — Relational Expansion
 
@@ -141,7 +143,7 @@ EpochDB uses a customized **Reciprocal Rank Fusion (RRF)** pipeline with an inte
 | **Semantic** | RRF Rank | Cosine similarity to query |
 | **Recency** | RRF Rank | Strictly monotonic engine-assigned timestamps |
 | **Entities** | RRF Rank | Overlap with query-extracted entities |
-| **Topic Lock** | Additive Bonus | **Nuclear Topic Lock**: A discrete `+5.0` bonus for atoms matching the query's predicate domain |
+| **Topic Lock** | Additive Bonus & Seeding | **Nuclear Topic Lock**: Architectural seeding of candidates via Entity Hook + discrete `+5.0` bonus for atoms matching the query's predicate domain |
 | **Supersession** | Multiplier | Stale factual states are penalized by `0.001x` if a newer fact for the same Subject/Predicate exists |
 
 ---

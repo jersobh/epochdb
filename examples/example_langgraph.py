@@ -1,5 +1,5 @@
 """
-example_langgraph.py — EpochDB v0.4.0 + LangGraph Multi-Session Agent
+example_langgraph.py — EpochDB v0.4.1 + LangGraph Multi-Session Agent
 =======================================================================
 Demonstrates a stateful conversational agent that persists both:
   - Long-term associative memory  (EpochDB atoms + Knowledge Graph)
@@ -94,7 +94,7 @@ def main():
     client = genai.Client(api_key=api_key)
 
     print("╔══════════════════════════════════════════════════════════╗")
-    print("║          EpochDB v0.4.0 — LangGraph Agent Demo           ║")
+    print("║          EpochDB v0.4.1 — LangGraph Agent Demo           ║")
     print("╚══════════════════════════════════════════════════════════╝\n")
     print(f"  Embedding:  {EMBED_MODEL} ({DIM}D)")
     print(f"  Generation: {GEN_MODEL}")
