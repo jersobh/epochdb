@@ -14,11 +14,11 @@ venv/bin/python -m benchmarks.run_benchmark
 
 ---
 
-## Named Benchmark Suite
+## Named Benchmark Suite (Overall)
 
-> `gemini-embedding-2-preview` (3072D) · v0.4.1 Hardened Release
+> `gemini-embedding-2-preview` (3072D) · v0.4.1 Hardened
 
-| Benchmark | What it tests | Result | Status |
+| Benchmark | What it tests | Score | Status |
 |---|---|---|---|
 | **LoCoMo** | Multi-hop relational reasoning | **1.000** | ✓ PASS |
 | **ConvoMem** | Fact correction & preference recall | **1.000** | ✓ PASS |
@@ -27,32 +27,46 @@ venv/bin/python -m benchmarks.run_benchmark
 
 ---
 
-## Operation Latency & Capability Metrics
+## Technical Capability Suite (Detailed)
 
-Detailed performance metrics for core engine operations on the v0.4.1 release.
+Detailed performance metrics with millisecond-level precision for core engine operations.
 
-### 1. Retrieval Latency
+### 1. Multi-Hop Relational Reasoning
 
-| Operation | Tier | Multiplier | Result (ms) |
-|---|---|---|---|
-| **Semantic Search** | Hot Tier | top_k × 10 | **0.4 ms** |
-| **Relational Hop** | Global KG | 1-hop | **0.2 ms** |
-| **Historical Recall**| Cold Tier | HNSW Index | **30.0 ms** |
+5-link chain: `Alice → Team Aurora → Project Helios → Quantum Core → Dr. Chen → IAC`  
+Tests recall at 0→5 hops. Query has near-zero semantic similarity to the terminal node.
 
-> [!NOTE]
-> Cold Tier latency is currently dominated by per-epoch overhead. Transitioning to a unified Global HNSW is planned for v0.5.0 to target < 5ms.
-
-### 2. Stability & Recovery
-
-| Metric | Target | Result |
+| Hops | recall@1 | Latency |
 |---|---|---|
-| **WAL Replay** | 3 uncommitted atoms | **9.1 ms** |
-| **Data Loss** | System Crash Simulation | **Zero** |
-| **Ingest Speed** | 20 atoms (embeddings included) | **~3s** |
+| 0 (Direct) | 1.000 | **0.4 ms** |
+| 1 | 1.000 | **0.2 ms** |
+| 2 | 1.000 | **0.2 ms** |
+| 3 | 1.000 | **0.2 ms** |
+| 4 | 1.000 | **0.2 ms** |
+| 5 (Deep) | 1.000 | **0.2 ms** |
 
-### 3. Storage Efficiency (INT8 + Zstd)
+**Result**: Target `IAC` first reached at hop depth **0** (KG Bridge).
 
-20 atoms × 3072D embeddings.
+### 2. Cross-Epoch Long-Term Memory (Cold Tier)
+
+8 distinct facts ingested and flushed to Cold Tier. Hot Tier cleared. Recall against Cold Tier only.
+
+- **recall@3**: `1.000` (after v0.4.1 engine upgrades)
+- **Cold Tier avg query latency**: **30.0 ms**
+
+> ⚠️ Cold Tier search uses one HNSW index per epoch. We aggregate candidates across all historical epochs.
+
+### 3. Needle in a Haystack (NIAH)
+
+3 signal facts hidden among 50 noise facts in a single session.  
+Query targets the specific signal entity via **Entity Hook** seeding.
+
+- **precision@3**: **1.000** (3/3 results are signal)
+- **Signal-to-Noise**: 100% signal density in top-3 results.
+
+### 4. Storage Efficiency (INT8 + Zstd)
+
+20 atoms × 3072D embeddings, serialized to Parquet.
 
 | Metric | Value |
 |---|---|
@@ -60,23 +74,31 @@ Detailed performance metrics for core engine operations on the v0.4.1 release.
 | Compressed (INT8+Zstd) | 47,328 bytes (46 KB) |
 | **Compression ratio** | **5.2×** |
 
+### 5. WAL Crash Recovery
+
+3 uncommitted atoms written to WAL. Database re-opened — WAL replay fires.
+
+- **Atoms recovered**: `3/3`
+- **Replay latency**: **9.1 ms**
+- **Result**: ✓ Zero data loss
+
 ---
 
-## Technical Feature Matrix
+## Feature Validation Matrix
 
-| Feature | Mechanism | Result |
+| Feature | Test | Result |
 |---|---|---|
-| **Topic Lock** | Factor P (+5.0 boost) | ✓ (Guaranteed Precision) |
-| **Entity Seeding** | KG Seeding (Hook) | ✓ (Resolved NIAH Haystack) |
-| **Supersession** | Temporal State Filter | ✓ (Corrected Facts Outrank Old) |
-| **Tiered Storage** | Parquet + HNSW | ✓ (Hybrid Retrieval) |
-| **Saliency** | access_deltas.json | ✓ (Persistent importance) |
+| Cross-epoch semantic recall | LongMemEval | ✓ PASS |
+| Multi-hop KG reasoning | LoCoMo | ✓ PASS |
+| Recency-aware fact correction | ConvoMem | ✓ PASS |
+| Noise suppression | NIAH | ✓ PASS (1.000) |
+| INT8 + Zstd compression | Storage Bench | ✓ PASS (5.2×) |
+| WAL crash recovery | WAL Bench | ✓ PASS (9.1ms) |
+| LangGraph thread persistence | EpochDBCheckpointer | ✓ PASS |
+| Persistent saliency deltas | access_deltas.json | ✓ PASS |
 
 ---
 
-## Final Verification - 2026-04-13 12:05 UTC
+## Final v0.4.1 Certification - 2026-04-13
 
-- **precision@3 (NIAH)**: 1.000
-- **recall@3 (LongMemEval)**: 1.000
-- **multi-hop (LoCoMo)**: 1.000
-- **Status**: **Fully Hardened v0.4.1 Ready**
+**EpochDB v0.4.1** is the first internal release to deliver a perfect **1.000 sweep** across all named benchmarks while maintaining sub-millisecond relational query speeds.
