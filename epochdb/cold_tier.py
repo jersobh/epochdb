@@ -38,22 +38,11 @@ class ColdTier:
             except (TypeError, ValueError):
                 payloads.append(json.dumps(str(a.payload)))
 
-        # INT8 Scalar Quantization for embeddings.
-        embeddings_f32 = np.array([a.embedding for a in atoms], dtype=np.float32)
-        if len(atoms) > 0 and embeddings_f32.size > 0:
-            max_vals = np.abs(embeddings_f32).max(axis=1, keepdims=True)
-            max_vals[max_vals == 0] = 1.0
-            scaled = (embeddings_f32 / max_vals) * 127.0
-            embeddings_i8 = np.clip(np.round(scaled), -128, 127).astype(np.int8)
-            embeddings = embeddings_i8.tolist()
-            embedding_maxes = max_vals.flatten().tolist()
-        else:
-            embeddings = []
-            embedding_maxes = []
-
+        # Full F32 precision for embeddings to eliminate quantization noise
+        embeddings = [a.embedding.tolist() for a in atoms]
         created_ats = [a.created_at for a in atoms]
         access_counts = [a.access_count for a in atoms]
-
+ 
         # Triples: stored as JSON arrays (list-of-lists) for safe round-trip.
         # This handles entity strings with quotes, backslashes, or unicode correctly.
         triples_json = []
@@ -62,26 +51,24 @@ class ColdTier:
                 triples_json.append(json.dumps([list(t) for t in a.triples]))
             except (TypeError, ValueError):
                 triples_json.append("[]")
-
+ 
         schema = pa.schema(
             [
                 ("id", pa.string()),
                 ("payload", pa.string()),
-                ("embedding", pa.list_(pa.int8())),
-                ("embedding_max", pa.float32()),
+                ("embedding", pa.list_(pa.float32())),
                 ("triples", pa.string()),
                 ("created_at", pa.float64()),
                 ("access_count", pa.int64()),
                 ("epoch_id", pa.string()),
             ]
         )
-
+ 
         table = pa.table(
             {
                 "id": ids,
                 "payload": payloads,
                 "embedding": embeddings,
-                "embedding_max": embedding_maxes,
                 "triples": triples_json,
                 "created_at": created_ats,
                 "access_count": access_counts,
@@ -89,11 +76,12 @@ class ColdTier:
             },
             schema=schema,
         )
-
+ 
         pq.write_table(table, file_path, compression="ZSTD")
         logger.info(f"Serialized {len(atoms)} atoms to {file_path}")
-
+ 
         # --- Persistent HNSW Index for this Epoch ---
+        embeddings_f32 = np.array([a.embedding for a in atoms], dtype=np.float32)
         self._build_hnsw_index(epoch_id, embeddings_f32)
 
     def _build_hnsw_index(self, epoch_id: str, embeddings: np.ndarray):
@@ -177,7 +165,7 @@ class ColdTier:
             )
             scored.append((sim, atom))
         
-        scored.sort(key=lambda x: x[0], reverse=True)
+        scored.sort(key=lambda x: x[0], reverse=False)
         return [a for _, a in scored[:top_k]]
 
     def load_atom_metadata(self, epoch_id: str, atom_ids: List[str]) -> List[UnifiedMemoryAtom]:

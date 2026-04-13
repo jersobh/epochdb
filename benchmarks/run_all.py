@@ -199,6 +199,8 @@ def main():
 
     # ── LoCoMo ──────────────────────────────────────────────────────────────
     hr("1 / 3 — LoCoMo (Multi-Hop Relational Reasoning)")
+    if os.path.exists(STORAGE_DIR): shutil.rmtree(STORAGE_DIR)
+    db = EpochDB(storage_dir=STORAGE_DIR, dim=DIM)
     t0 = time.perf_counter()
     results["locomo"] = locomo.run(db, embedder)
     lo = results["locomo"]
@@ -209,33 +211,43 @@ def main():
         hop_info = f"hop {c['found_at_hop']}" if c["recall"] else "not found"
         print(f"  {icon}  Chain {c['chain']} — target: '{c['target']}'  ({hop_info})")
     print(f"\n  {DM}Time: {time.perf_counter()-t0:.1f}s  ·  API calls: {embedder._calls}{R}")
+    db.close()
 
     # ── ConvoMem ─────────────────────────────────────────────────────────────
     hr("2 / 3 — ConvoMem (Conversational Memory Recall)")
+    if os.path.exists(STORAGE_DIR): shutil.rmtree(STORAGE_DIR)
+    db = EpochDB(storage_dir=STORAGE_DIR, dim=DIM)
     t0 = time.perf_counter()
     results["convomem"] = convomem.run(db, embedder)
     cv = results["convomem"]
     print(f"\n  recall@3:  {BD}{cv['recall@3']:.3f}{R}  "
           f"({cv['correct']}/{cv['total']} correct)")
     print(f"  {DM}Time: {time.perf_counter()-t0:.1f}s  ·  API calls: {embedder._calls}{R}")
+    db.close()
 
     # ── LongMemEval ───────────────────────────────────────────────────────────
     hr("3 / 3 — LongMemEval (Longitudinal Session Memory)")
+    if os.path.exists(STORAGE_DIR): shutil.rmtree(STORAGE_DIR)
+    db = EpochDB(storage_dir=STORAGE_DIR, dim=DIM)
     t0 = time.perf_counter()
     results["longmemeval"] = longmemeval.run(db, embedder)
     lm = results["longmemeval"]
     print(f"\n  recall@3:  {BD}{lm['recall@3']:.3f}{R}  "
           f"({lm['correct']}/{lm['total']} correct, {lm['sessions']} sessions)")
     print(f"  {DM}Time: {time.perf_counter()-t0:.1f}s  ·  API calls: {embedder._calls}{R}")
+    db.close()
 
     # ── NIAH ──────────────────────────────────────────────────────────────────
     hr("4 / 4 — Needle in a Haystack (Retrieval Precision)")
+    if os.path.exists(STORAGE_DIR): shutil.rmtree(STORAGE_DIR)
+    db = EpochDB(storage_dir=STORAGE_DIR, dim=DIM)
     t0 = time.perf_counter()
     results["needle"] = needle.run(db, embedder)
     nd = results["needle"]
     print(f"\n  precision@3:  {BD}{nd['precision_at_3']:.3f}{R}  "
           f"({nd['signal_hits']}/{nd['total_signal']} signal hits)")
     print(f"  {DM}Time: {time.perf_counter()-t0:.1f}s  ·  API calls: {embedder._calls}{R}")
+    db.close()
 
     # ── Final Summary ─────────────────────────────────────────────────────────
     wall_time = time.perf_counter() - t_start

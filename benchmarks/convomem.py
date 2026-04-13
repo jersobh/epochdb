@@ -99,7 +99,7 @@ def run(db, embedder) -> Dict[str, float]:
         
         # Use low-level recall but with high-level entity context boost
         results = db.recall(q_emb, top_k=3, expand_hops=1, query_entities=entities)
-        
+
         found = any(
             all(term.lower() in str(r.payload).lower() for term in answer_terms)
             for r in results

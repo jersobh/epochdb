@@ -182,6 +182,11 @@ class EpochDB:
         if triples is None:
             triples = []
 
+        # Ensure embedding is unit-length for consistent cosine similarity.
+        norm = np.linalg.norm(embedding)
+        if norm > 1e-10:
+            embedding = embedding / norm
+
         # Assign strictly monotonic timestamp
         ts = max(time.time(), self._last_timestamp + 0.000001)
         self._last_timestamp = ts
@@ -200,12 +205,10 @@ class EpochDB:
 
         # Update Global Entity Index.
         for subj, pred, obj in triples:
-            if subj not in self.global_kg:
-                self.global_kg[subj] = []
-            if obj not in self.global_kg:
-                self.global_kg[obj] = []
-            self.global_kg[subj].append([atom.id, self.current_epoch_id])
-            self.global_kg[obj].append([atom.id, self.current_epoch_id])
+            for entity in (subj, pred, obj):
+                if entity not in self.global_kg:
+                    self.global_kg[entity] = []
+                self.global_kg[entity].append([atom.id, self.current_epoch_id])
             self.predicates.add(pred)
 
         self._save_global_kg()
@@ -264,29 +267,40 @@ class EpochDB:
         return results
 
     def extract_entities(self, text: str) -> List[str]:
-        """
-        Heuristically identifies known entities from the Global KG within a string.
-        Used to boost Factor C (Entity Overlap) during retrieval.
-        """
-        found = []
-        text_lower = text.lower()
-        # Scan Global KG keys for matches.
-        for entity in self.global_kg.keys():
-            # Check for substring match (could be improved with regex word boundaries)
-            if entity.lower() in text_lower:
-                found.append(entity)
-        
-        # Scan Predicates for match. Lenient: check if any cleaned word in text matches any part of predicate.
-        # Strip punctuation from words before matching
-        import re
-        query_words = {re.sub(r'[^\w]', '', w) for w in text_lower.split() if len(w) > 2}
+        """Heuristically extract entities from text that exist in Global KG."""
+        found = set()
+        text_l = text.lower()
+        # Clean possessives and punctuation
+        clean_text = text_l.replace("'s", "").replace("?", "").replace(".", "").replace(",", "")
+        words = {w.strip() for w in clean_text.split() if len(w) > 2}
+
+        # Expanded blacklist – generic conversational pronouns/determiners
+        blacklist = {"user", "agent", "the", "this", "that", "it", "i", "my", "me",
+                     "they", "their", "who", "what", "where", "when", "how"}
+
+        # --- Pass 1: Subjects/Objects must literally appear in the query ---
+        for ent in self.global_kg.keys():
+            if ent.lower() in blacklist:
+                continue
+            ent_l = ent.lower()
+            # Only substring match — no fuzzy token matching (which was the bug)
+            if ent_l in clean_text:
+                found.add(ent)
+
+        # --- Pass 2: Predicates — substring + cautious prefix fuzzy ---
         for pred in self.predicates:
-            p_parts = {part for part in pred.lower().split("_") if len(part) > 2}
-            # Check if any query word overlaps with any predicate token
-            if any(qw in pred.lower() or any(pp in qw for pp in p_parts) for qw in query_words if qw):
-                found.append(pred)
-        
-        return found
+            pred_l = pred.lower()
+            if pred_l in clean_text:
+                found.add(pred)
+                continue
+            pred_parts = {p.strip() for p in pred_l.replace("_", " ").split() if len(p) > 3}
+            for part in pred_parts:
+                root = part[:4]
+                if any(root in w for w in words):
+                    found.add(pred)
+                    break
+
+        return [f for f in found if f.lower() not in blacklist]
 
     # -------------------------------------------------------------------------
     # Convenience: Auto-Embedding
