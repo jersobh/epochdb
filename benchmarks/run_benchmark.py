@@ -1,5 +1,5 @@
 """
-benchmarks/run_benchmark.py — EpochDB v0.4.0 Self-Benchmark Suite
+benchmarks/run_benchmark.py — EpochDB v0.4.1 Self-Benchmark Suite
 ===================================================================
 Five focused benchmarks that prove EpochDB's unique capabilities:
 
@@ -273,7 +273,7 @@ def bench_cross_epoch(emb: Embedder) -> dict:
 def bench_needle(emb: Embedder) -> dict:
     hr("Benchmark 3 — Needle in a Haystack")
     print(
-        "  Stores 2 'signal' facts among 20 'noise' facts.\n"
+        "  Stores 3 'signal' facts among 20 'noise' facts.\n"
         "  Measures precision@3: how many of the top-3 results are signal (not noise).\n"
         "  The noise facts are all semantically related to the signal domain but\n"
         "  irrelevant to the specific query.\n"
@@ -285,6 +285,8 @@ def bench_needle(emb: Embedder) -> dict:
          [("Alice", "leads", "Project Helios")]),
         ("Project Helios has a confirmed budget of 42 million dollars for FY2026.",
          [("Project Helios", "budget_usd_M", "42")]),
+        ("Project Helios is headquartered at the secured Neo-Tokyo Data Vault.",
+         [("Project Helios", "located_at", "Neo-Tokyo")]),
     ]
 
     # Noise: plausible-sounding project management facts about other projects/people.
@@ -311,7 +313,7 @@ def bench_needle(emb: Embedder) -> dict:
         "A new performance review cycle has been announced for all engineers.",
     ]
 
-    query = "What is Alice's project and what is its budget?"
+    query = "What is Alice's project, its budget, and its location?"
 
     db = fresh_db("./.epochdb_bench_needle")
 
@@ -328,7 +330,12 @@ def bench_needle(emb: Embedder) -> dict:
         signal_ids.add(aid)
 
     q_emb = emb.encode(query)
-    results = db.recall(q_emb, top_k=3, expand_hops=1, query_entities=["Alice", "Project Helios"])
+    results = db.recall(
+        q_emb, 
+        top_k=3, 
+        expand_hops=1, 
+        query_entities=["Alice", "Project Helios", "budget", "location"]
+    )
 
     signal_hits  = sum(1 for r in results if r.id in signal_ids)
     noise_hits   = sum(1 for r in results if r.id in noise_ids)
@@ -629,7 +636,7 @@ def main():
         sys.exit(1)
 
     print("\n╔══════════════════════════════════════════════════════════════╗")
-    print(  "║         EpochDB v0.4.0 — Self-Benchmark Suite               ║")
+    print(  "║         EpochDB v0.4.1 — Self-Benchmark Suite               ║")
     print(  "╚══════════════════════════════════════════════════════════════╝")
     print(f"\n  Embedding model: {BD}{EMBED_MODEL}{R} ({DIM}D)")
     print(  "  5 benchmarks · No external database required\n")

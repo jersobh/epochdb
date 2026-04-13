@@ -53,7 +53,8 @@ class RetrievalManager:
         candidates: Dict[str, tuple] = {}
 
         # --- 1. Semantic Hook: Hot Tier ---
-        hot_hits = self.hot_tier.query_vector(query_emb, top_k=top_k * 2)
+        # We fetch a larger pool to allow RRF and Topic Locking to function.
+        hot_hits = self.hot_tier.query_vector(query_emb, top_k=top_k * 10)
         for atom in hot_hits:
             if len(atom.embedding) == len(query_emb):
                 score = np.dot(atom.embedding, query_emb) / (
@@ -62,6 +63,37 @@ class RetrievalManager:
             else:
                 score = 0.0
             candidates[atom.id] = (atom, float(score))
+
+        # --- 1a. Entity Hook: Global KG Seeding ---
+        # If query entities match Global KG entries, we pull them in as candidates 
+        # even if their semantic score was too low to make the initial pool.
+        for qe in query_entities:
+            if qe in self.global_kg:
+                # Group neighbor atoms by epoch for optimized loading
+                epoch_to_atom_ids: Dict[str, List[str]] = {}
+                for a_id, ep_id in self.global_kg[qe]:
+                    if a_id not in candidates:
+                        if ep_id not in epoch_to_atom_ids:
+                            epoch_to_atom_ids[ep_id] = []
+                        epoch_to_atom_ids[ep_id].append(a_id)
+                
+                # Fetch from Cold Tier if needed
+                for ep_id, a_ids in epoch_to_atom_ids.items():
+                    atoms = self.cold_tier.load_atom_metadata(ep_id, a_ids)
+                    for a in atoms:
+                        sim = np.dot(a.embedding, query_emb) / (
+                            np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
+                        )
+                        candidates[a.id] = (a, float(sim))
+                
+                # Also check Hot Tier
+                for a_id, _ in self.global_kg[qe]:
+                    if a_id in self.hot_tier.atoms and a_id not in candidates:
+                        a = self.hot_tier.atoms[a_id]
+                        sim = np.dot(a.embedding, query_emb) / (
+                            np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
+                        )
+                        candidates[a.id] = (a, float(sim))
 
         # --- Keyword-based Entity Extraction (Auto-Expansion) ---
         # If no explicit entities are passed, we scan the query embedding surface 
@@ -76,7 +108,7 @@ class RetrievalManager:
         epochs = self.cold_tier.get_all_epochs()
         for epoch in epochs:
             # We fetch a larger pool to ensure corrections are captured for RRF fusion.
-            cold_hits = self.cold_tier.search_epoch(epoch, query_emb, top_k=top_k * 5)
+            cold_hits = self.cold_tier.search_epoch(epoch, query_emb, top_k=top_k * 10)
             for atom in cold_hits:
                 if len(atom.embedding) != len(query_emb):
                     continue

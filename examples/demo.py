@@ -1,5 +1,5 @@
 """
-demo.py — EpochDB v0.4.0 Self-Contained Walkthrough
+demo.py — EpochDB v0.4.1 Self-Contained Walkthrough
 =====================================================
 Demonstrates all core features using Gemini embeddings (gemini-embedding-2-preview)
 and the new auto-embedding convenience API.
@@ -65,7 +65,7 @@ def main():
         shutil.rmtree(storage_dir, ignore_errors=True)
         time.sleep(0.3)
 
-    hr("EpochDB v0.4.0 — Feature Walkthrough")
+    hr("EpochDB v0.4.1 — Feature Walkthrough")
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:

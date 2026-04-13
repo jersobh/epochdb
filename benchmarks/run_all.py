@@ -1,5 +1,5 @@
 """
-benchmarks/run_all.py — EpochDB v0.4.0 Named Benchmark Suite
+benchmarks/run_all.py — EpochDB v0.4.1 Named Benchmark Suite
 =============================================================
 Runs the three named benchmarks (LoCoMo, ConvoMem, LongMemEval) against EpochDB
 using Gemini embeddings, then appends dated results to benchmark.md.
@@ -42,7 +42,7 @@ except ImportError:
     sys.exit(1)
 
 from epochdb import EpochDB
-from benchmarks import locomo, convomem, longmemeval
+from benchmarks import locomo, convomem, longmemeval, needle
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 EMBED_MODEL = "gemini-embedding-2-preview"
@@ -97,6 +97,7 @@ def append_to_benchmark_md(results: dict, api_calls: int, wall_time: float):
     lo = results["locomo"]
     cv = results["convomem"]
     lm = results["longmemeval"]
+    nd = results["needle"]
 
     chain_rows = "\n".join(
         f"| Chain {c['chain']} ({c['target']}) | {c['found_at_hop'] if c['recall'] else 'not found'} | {'✓' if c['recall'] else '✗'} |"
@@ -146,6 +147,15 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 
 ---
 
+### Needle in a Haystack — Retrieval Precision
+
+**precision@3**: `{nd['precision_at_3']:.3f}` ({nd['signal_hits']}/3 results are signal)
+
+3 signal facts hidden among {nd['total_noise']} noise facts.  
+Evaluation uses Entity Hook seeding to ensure Topic Lock.
+
+---
+
 ### Summary
 
 | Benchmark | Metric | Result |
@@ -153,6 +163,7 @@ All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
 | LoCoMo | Multi-hop recall | `{lo['recall@chains']:.3f}` |
 | ConvoMem | recall@3 | `{cv['recall@3']:.3f}` |
 | LongMemEval | recall@3 | `{lm['recall@3']:.3f}` |
+| NIAH | precision@3 | `{nd['precision_at_3']:.3f}` |
 """
 
     md_path = os.path.join(_ROOT, "benchmark.md")
@@ -170,11 +181,11 @@ def main():
         sys.exit(1)
 
     print("\n╔══════════════════════════════════════════════════════════════╗")
-    print(  "║    EpochDB v0.4.0 — Named Benchmark Suite                   ║")
-    print(  "║    LoCoMo  ·  ConvoMem  ·  LongMemEval                      ║")
+    print(  "║    EpochDB v0.4.1 — Named Benchmark Suite                   ║")
+    print(  "║    LoCoMo · ConvoMem · LongMemEval · NIAH                   ║")
     print(  "╚══════════════════════════════════════════════════════════════╝")
     print(f"\n  Embedding:  {BD}{EMBED_MODEL}{R} ({DIM}D)")
-    print(  "  No external datasets required\n")
+    print(  "  4 benchmarks · No external datasets required\n")
 
     client   = genai.Client(api_key=api_key)
     embedder = GeminiEmbedder(client)
@@ -217,6 +228,15 @@ def main():
           f"({lm['correct']}/{lm['total']} correct, {lm['sessions']} sessions)")
     print(f"  {DM}Time: {time.perf_counter()-t0:.1f}s  ·  API calls: {embedder._calls}{R}")
 
+    # ── NIAH ──────────────────────────────────────────────────────────────────
+    hr("4 / 4 — Needle in a Haystack (Retrieval Precision)")
+    t0 = time.perf_counter()
+    results["needle"] = needle.run(db, embedder)
+    nd = results["needle"]
+    print(f"\n  precision@3:  {BD}{nd['precision_at_3']:.3f}{R}  "
+          f"({nd['signal_hits']}/{nd['total_signal']} signal hits)")
+    print(f"  {DM}Time: {time.perf_counter()-t0:.1f}s  ·  API calls: {embedder._calls}{R}")
+
     # ── Final Summary ─────────────────────────────────────────────────────────
     wall_time = time.perf_counter() - t_start
     hr("Summary")
@@ -225,6 +245,7 @@ def main():
         ("LoCoMo",      "multi-hop recall", f"{lo['recall@chains']:.3f}",  lo["recall@chains"]),
         ("ConvoMem",    "recall@3",         f"{cv['recall@3']:.3f}",       cv["recall@3"]),
         ("LongMemEval", "recall@3",         f"{lm['recall@3']:.3f}",       lm["recall@3"]),
+        ("NIAH",        "precision@3",      f"{nd['precision_at_3']:.3f}", nd["precision_at_3"]),
     ]
     col = [14, 18, 8]
     print(f"  {BD}{'Benchmark':<{col[0]}} {'Metric':<{col[1]}} {'Score':<{col[2]}} Pass{R}")
