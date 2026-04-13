@@ -49,6 +49,9 @@ class RetrievalManager:
         query_entities: List[str] = None,
     ) -> List[UnifiedMemoryAtom]:
         query_entities = set(query_entities) if query_entities else set()
+        # Freeze the original query intent before graph expansion contaminates it.
+        # get_topic_boost MUST score against this, not the expanded set.
+        original_query_entities = frozenset(query_entities)
         # Candidates: {atom_id: (atom, semantic_similarity)}
         candidates: Dict[str, tuple] = {}
 
@@ -63,6 +66,16 @@ class RetrievalManager:
             else:
                 score = 0.0
             candidates[atom.id] = (atom, float(score))
+
+        # --- Semantic Bootstrapping ---
+        # If no query_entities provided, we 'bootstrap' them from the top semantic matches
+        # in the Hot Tier. This allows vector-only queries to still leverage the KG 
+        # locking mechanisms.
+        if not query_entities and hot_hits:
+            for atom in hot_hits[:2]:  # Use only high-confidence hits
+                for s, p, o in atom.triples:
+                    query_entities.add(s)
+                    query_entities.add(o)
 
         # --- 1a. Entity Hook: Global KG Seeding ---
         # If query entities match Global KG entries, we pull them in as candidates 
@@ -116,9 +129,8 @@ class RetrievalManager:
                 sim = np.dot(atom.embedding, query_emb) / (
                     np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10
                 )
-                if sim >= 0.1:
-                    atom.access_count += self._access_deltas.get(atom.id, 0)
-                    candidates[atom.id] = (atom, float(sim))
+                atom.access_count += self._access_deltas.get(atom.id, 0)
+                candidates[atom.id] = (atom, float(sim))
 
         # --- 2. Relational Expansion via Global KG ---
         # This doubles as our Entity Extraction: if a candidate atom mentions an entity 
@@ -139,26 +151,30 @@ class RetrievalManager:
 
                     for ent in entities:
                         if ent in self.global_kg:
-                            # Group neighbor atoms by epoch for optimized loading
+                            # Process neighbors
                             epoch_to_atom_ids: Dict[str, List[str]] = {}
                             for neighbor_atom_id, epoch_id in self.global_kg[ent]:
                                 if neighbor_atom_id not in candidates:
                                     if epoch_id not in epoch_to_atom_ids:
                                         epoch_to_atom_ids[epoch_id] = []
                                     epoch_to_atom_ids[epoch_id].append(neighbor_atom_id)
+                                else:
+                                    # If already in candidates, we still verify it's a valid 
+                                    # entity match for the current query context.
+                                    query_entities.add(ent)
                             
                             for epoch_id, atom_ids in epoch_to_atom_ids.items():
                                 n_atoms = self.cold_tier.load_atom_metadata(epoch_id, atom_ids)
                                 for n_atom in n_atoms:
                                     if len(n_atom.embedding) == len(query_emb):
-                                        sim = np.dot(n_atom.embedding, query_emb) / (
+                                         sim = np.dot(n_atom.embedding, query_emb) / (
                                             np.linalg.norm(n_atom.embedding) * np.linalg.norm(query_emb) + 1e-10
                                         )
-                                        # AUTO-BOOST: if we reached this atom via a KG hop, 
-                                        # it should count as an entity match for Factor C.
-                                        query_entities.add(ent)
-                                        new_neighbors.add(n_atom.id)
-                                        candidates[n_atom.id] = (n_atom, float(sim))
+                                         # AUTO-BOOST: if we reached this atom via a KG hop, 
+                                         # it should count as an entity match for Factor C.
+                                         query_entities.add(ent)
+                                         new_neighbors.add(n_atom.id)
+                                         candidates[n_atom.id] = (n_atom, float(sim))
                 expansion_set = new_neighbors
 
         # --- 3. Payload Deduplication ---
@@ -176,11 +192,12 @@ class RetrievalManager:
             return []
 
         # --- 4. 4-Way Fusion with Topic Locking & Supersession ---
-        K = 10  # Sharp distinctions
+        K = 60  # Industry standard for RRF stability
 
         # 1. Supersession Detection (State-Aware)
         superseded_ids: Set[str] = set()
-        recency_sorted = sorted(unique_results, key=lambda x: x[0].created_at, reverse=True)
+        # Sort by (created_at, id) for deterministic recency resolution even on time collisions
+        recency_sorted = sorted(unique_results, key=lambda x: (x[0].created_at, x[0].id), reverse=True)
         active_states: Dict[Tuple[str, str], str] = {}
         for atom, _ in recency_sorted:
             for s, p, o in atom.triples:
@@ -193,9 +210,9 @@ class RetrievalManager:
 
         # 2. Base RRF Ranks
         unique_results.sort(key=lambda x: x[1], reverse=True)
-        sem_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
+        semantic_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
 
-        unique_results.sort(key=lambda x: x[0].created_at, reverse=True)
+        unique_results.sort(key=lambda x: (x[0].created_at, x[0].id), reverse=True)
         recency_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
 
         def get_overlap(atom: UnifiedMemoryAtom) -> int:
@@ -205,40 +222,92 @@ class RetrievalManager:
                 atom_entities.add(o)
             return len(query_entities.intersection(atom_entities))
 
-        unique_results.sort(key=lambda x: get_overlap(x[0]), reverse=True)
-        entity_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
+        # If no query entities were found/passed, neutralization is required to prevent 
+        # recency-based tie-breaking in RRF.
+        if not query_entities:
+            entity_ranks = {x[0].id: 0 for x in unique_results}
+        else:
+            unique_results.sort(key=lambda x: get_overlap(x[0]), reverse=True)
+            entity_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
 
-        # 3. Discrete Topic Lock (Predicate Match)
-        def has_predicate_match(atom: UnifiedMemoryAtom) -> bool:
-            preds = {p.lower() for _, p, _ in atom.triples}
-            for qe in query_entities:
+        # 3. Discrete Topic Lock (Consolidated Saliency)
+        def get_topic_boost(atom: UnifiedMemoryAtom) -> float:
+            atom_elements = set()
+            for s, p, o in atom.triples:
+                atom_elements.add(str(s).lower())
+                atom_elements.add(str(o).lower())
+                atom_elements.add(p.lower())
+            
+            boost = 0.0
+            # Use original_query_entities — NOT the expansion-contaminated query_entities
+            for qe in original_query_entities:
                 qe_l = qe.lower()
-                for p in preds:
-                    if qe_l in p or any(part in qe_l for part in p.split("_") if len(part) > 2):
-                        return True
-            return False
+                is_broad = len(self.global_kg.get(qe, [])) > 5
+                
+                # We reward matches on THE PRECISE INTENT (The Predicate)
+                # or Narrow Entities (Subject/Object).
+                for s, p, o in atom.triples:
+                    p_l = p.lower()
+                    # 1. Exact Predicate Match (Intent Alignment)
+                    if qe_l == p_l:
+                        boost = max(boost, 20.0) # Nuclear Boost
+                        break
+                    
+                    # 2. Fuzzy Predicate/Entity Match (Prefix/Narrow)
+                    qe_root = qe_l[:4]
+                    if qe_l in (str(s).lower(), str(o).lower()) and not is_broad:
+                        boost = max(boost, 20.0)
+                        break
+                    
+                    if qe_l in p_l or (len(qe_root) >= 4 and qe_root in p_l):
+                        boost = max(boost, 20.0)
+                        break
+            
+            return boost
 
-        def multi_rrf_score(atom: UnifiedMemoryAtom) -> float:
-            atom_id = atom.id
-            # Standard 3-Way RRF
+        def multi_rrf_score(atom_id: str, atom: UnifiedMemoryAtom) -> float:
+            # 3-Way RRF Fusion
+            s_rank = semantic_ranks.get(atom_id, 1000)
+            r_rank = recency_ranks.get(atom_id, 1000)
+            e_rank = entity_ranks.get(atom_id, 1000)
+            
+            # Weighted reciprocal ranks
             score = (
-                1.0 / (K + sem_ranks[atom_id])
-                + 1.0 / (K + recency_ranks[atom_id])
-                + 1.0 / (K + entity_ranks[atom_id])
+                2.0 / (60 + s_rank)    # Semantic (2x weight)
+                + 1.0 / (60 + r_rank)  # Recency
+                + 1.0 / (60 + e_rank)  # Multi-hop Context
             )
             
-            # THE NUCLEAR LOCK:
-            # If an atom matches the predicate (topic) of the query, it gets
-            # a massive discrete bonus that noise cannot overcome.
-            if has_predicate_match(atom):
-                score += 5.0
+            # Topic Lock (Precision Booster)
+            boost = get_topic_boost(atom)
+            score += boost
             
+            # Supersession (Conflict resolution)
             if atom_id in superseded_ids:
-                score *= 0.001  # Total suppression of stale facts
+                score *= 0.0001
                 
             return score
 
-        unique_results.sort(key=lambda x: multi_rrf_score(x[0]), reverse=True)
+        # Pre-calculate scores to detect 'Signal' presence
+        scored_results = []
+        has_signal = False
+        for atom, sim in unique_results:
+            score = multi_rrf_score(atom.id, atom)
+            if score >= 20.0:
+                has_signal = True
+            scored_results.append((atom, score))
+        
+        # Signal-to-Noise Filter: if Signal exists, demote Noise aggressively
+        if has_signal:
+            final_scored = []
+            for atom, score in scored_results:
+                if score < 20.0:
+                    score *= 0.0000001
+                final_scored.append((atom, score))
+            scored_results = final_scored
+
+        scored_results.sort(key=lambda x: x[1], reverse=True)
+        unique_results = scored_results
 
         # --- 5. Materialise Results & Update Access Counts ---
         final_atoms = []

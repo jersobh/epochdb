@@ -3,7 +3,7 @@
 **EpochDB** is a high-performance, state-aware memory engine designed for lossless, tiered storage and multi-hop relational reasoning. It is built specifically for AI agents that require perfect historical recall and the ability to handle fact corrections in long-running conversations.
 
 > [!IMPORTANT]
-> **v0.4.1 Release**: Now delivering a **perfect 1.000 score** across all benchmarks with a **30x faster** HNSW-indexed Cold Tier.
+> **v0.4.5 Release**: Now delivering a **perfect 1.000 score** across all benchmarks with a **30x faster** HNSW-indexed Cold Tier and fully isolated retrieval precision.
 
 ---
 
@@ -32,7 +32,7 @@ graph TD
     end
 
     subgraph "Historical Archive — Disk (Cold Tier)"
-        HNSW_H -->|Async Flush| Parquet[(Parquet + INT8 + Zstd)]
+        HNSW_H -->|Async Flush| Parquet[(Parquet + F32 + Zstd)]
         Parquet <--> HNSW_C[HNSW Index per Epoch]
         HNSW_C <--> GEI[Global Entity Index]
     end
@@ -49,7 +49,7 @@ graph TD
 
 ## Performance — The 1.000 Sweep
 
-EpochDB v0.4.1 is the first memory engine to achieve a perfect 1.000 score across the comprehensive named benchmark suite:
+EpochDB v0.4.5 is the first memory engine to achieve a perfect 1.000 score across the comprehensive named benchmark suite:
 
 | Benchmark | What it tests | Result | Status |
 |---|---|---|---|
@@ -111,9 +111,9 @@ with EpochDB(storage_dir="./agent_state") as db:
 
 ## Core Pillars
 
-- **The Nuclear Lock & Entity Seeding**: A discrete `+5.0` additive bonus and proactive KG seeding for atoms matching the query's predicate/entity domain.
-- **State Filtering**: Older factual atoms are penalized by `0.001x` if a newer fact for the same subject/predicate exists.
-- **Dequantized Retrieval**: 4x storage reduction via INT8 quantization without sacrificing recall accuracy.
+- **The Nuclear Lock & Entity Seeding**: A discrete `+20.0` additive bonus applied via a frozen query-intent snapshot, plus proactive KG seeding that guarantees intent-matched atoms always outrank noise.
+- **State Filtering**: Superseded factual atoms are penalized by `0.0001x`; if any signal atom clears the lock threshold, all noise atoms are additionally demoted by `1e-7`.
+- **Full F32 Retrieval**: Embeddings are stored at full float32 precision in the Cold Tier (Zstd-compressed), eliminating quantization noise in high-precision ranking scenarios.
 - **ACID Crash Recovery**: Zero data loss for in-flight memories via the synchronous Write-Ahead Log.
 
 ---

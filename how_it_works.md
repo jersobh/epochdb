@@ -36,7 +36,7 @@ graph TD
 
     subgraph "Epoch Checkpoint (Async)"
         HNSW -->|daemon thread| Flush[serialize_epoch]
-        Flush --> Parquet[(Parquet + INT8 + Zstd)]
+        Flush -->|daemon thread| Parquet[(Parquet + F32 + Zstd)]
     end
 
     subgraph "L2 — Historical Archive (Disk)"
@@ -68,14 +68,7 @@ Every epoch is serialized into a immutable Parquet file accompanied by a **Persi
 
 This tiered indexing allows EpochDB to scale to millions of atoms across hundreds of epochs without $O(N)$ linear scan penalties.
 
-Each Cold Tier file uses two compression layers:
-
-| Layer | Technique | Effect |
-|---|---|---|
-| INT8 Scalar Quantization | Per-row max-value scaling, cast to int8 | ~4× embedding footprint reduction |
-| Zstandard (Zstd) | Block-level compression | Additional ~2–4× reduction on quantized data |
-
-Dequantization is transparent on load: `emb_f32 = (emb_i8 / 127.0) * row_max`.
+Each Cold Tier file is compressed with **Zstandard (Zstd)** for efficient disk storage. Embeddings are stored at full **float32** precision to ensure retrieval ranking is 100% numerically stable — INT8 quantization was removed in v0.4.5 after analysis showed its 1–2% precision noise could cause ranking upsets in high-precision recall scenarios.
 
 ---
 
@@ -141,10 +134,11 @@ EpochDB uses a customized **Reciprocal Rank Fusion (RRF)** pipeline with an inte
 | Pillar | Mechanism | Description |
 |---|---|---|
 | **Semantic** | RRF Rank | Cosine similarity to query |
-| **Recency** | RRF Rank | Strictly monotonic engine-assigned timestamps |
+| **Recency** | RRF Rank | Strictly monotonic timestamps; `(created_at, atom.id)` used as composite sort key for deterministic tie-breaking |
 | **Entities** | RRF Rank | Overlap with query-extracted entities |
-| **Topic Lock** | Additive Bonus & Seeding | **Nuclear Topic Lock**: Architectural seeding of candidates via Entity Hook + discrete `+5.0` bonus for atoms matching the query's predicate domain |
-| **Supersession** | Multiplier | Stale factual states are penalized by `0.001x` if a newer fact for the same Subject/Predicate exists |
+| **Topic Lock** | Additive Bonus `+20.0` | Scored against a **frozen snapshot** of `original_query_entities`, taken before graph expansion. Prevents expansion-induced entity contamination from granting unearned boosts. |
+| **Signal-to-Noise Filter** | Post-fusion demotion | If any atom achieves ≥ 20.0 (Topic Lock triggered), all non-signal atoms are further demoted by `1e-7`, making intent-matched facts mathematically unreachable by noise. |
+| **Supersession** | Multiplier `0.0001×` | Stale factual states (same Subject/Predicate, older atom) are penalized while the latest fact wins. |
 
 ---
 

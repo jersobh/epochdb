@@ -414,16 +414,16 @@ def bench_storage(emb: Embedder) -> dict:
     print(f"  Atoms stored:        {len(corpus)}")
     print(f"  Embedding dimension: {DIM}D")
     print(f"  Raw float32 size:    {raw_bytes:,} bytes  ({raw_bytes / 1024:.1f} KB)")
-    print(f"  Parquet (INT8+Zstd): {actual_bytes:,} bytes  ({actual_bytes / 1024:.1f} KB)")
+    print(f"  Parquet (F32+Zstd):  {actual_bytes:,} bytes  ({actual_bytes / 1024:.1f} KB)")
     print(f"  Compression ratio:   {ratio:.1f}×\n")
 
-    # Verify schema.
+    # Verify schema — v0.4.5 stores full float32 for ranking precision.
     import pyarrow.parquet as pq
     if parquet_files:
         table = pq.read_table(os.path.join(db_dir, parquet_files[0]))
         emb_type = str(table.schema.field("embedding").type)
-        if "int8" in emb_type:
-            ok(f"INT8 quantization confirmed in Parquet schema (dtype: {emb_type})")
+        if "float" in emb_type:
+            ok(f"F32 precision confirmed in Parquet schema (dtype: {emb_type})")
         else:
             fail(f"Unexpected embedding dtype: {emb_type}")
 
