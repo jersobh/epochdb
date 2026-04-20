@@ -3,6 +3,7 @@ from typing import List, Dict, Set
 from .atom import UnifiedMemoryAtom
 from .hot_tier import HotTier
 from .cold_tier import ColdTier
+from .kg_manager import KGManager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,11 +16,11 @@ class RetrievalManager:
         self,
         hot_tier: HotTier,
         cold_tier: ColdTier,
-        global_kg: Dict[str, List[List[str]]],
+        kg_manager: KGManager,
     ):
         self.hot_tier = hot_tier
         self.cold_tier = cold_tier
-        self.global_kg = global_kg
+        self.kg_manager = kg_manager
 
         # Track access-count increments for cold-tier atoms in memory.
         # These are applied on top of the stored access_count when an atom
@@ -81,10 +82,11 @@ class RetrievalManager:
         # If query entities match Global KG entries, we pull them in as candidates 
         # even if their semantic score was too low to make the initial pool.
         for qe in query_entities:
-            if qe in self.global_kg:
+            associations = self.kg_manager.get_associations(qe)
+            if associations:
                 # Group neighbor atoms by epoch for optimized loading
                 epoch_to_atom_ids: Dict[str, List[str]] = {}
-                for a_id, ep_id in self.global_kg[qe]:
+                for a_id, ep_id in associations:
                     if a_id not in candidates:
                         if ep_id not in epoch_to_atom_ids:
                             epoch_to_atom_ids[ep_id] = []
@@ -100,7 +102,7 @@ class RetrievalManager:
                         candidates[a.id] = (a, float(sim))
                 
                 # Also check Hot Tier
-                for a_id, _ in self.global_kg[qe]:
+                for a_id, _ in associations:
                     if a_id in self.hot_tier.atoms and a_id not in candidates:
                         a = self.hot_tier.atoms[a_id]
                         sim = np.dot(a.embedding, query_emb) / (
@@ -150,10 +152,11 @@ class RetrievalManager:
                         entities.add(obj)
 
                     for ent in entities:
-                        if ent in self.global_kg:
+                        associations = self.kg_manager.get_associations(ent)
+                        if associations:
                             # Process neighbors
                             epoch_to_atom_ids: Dict[str, List[str]] = {}
-                            for neighbor_atom_id, epoch_id in self.global_kg[ent]:
+                            for neighbor_atom_id, epoch_id in associations:
                                 if neighbor_atom_id not in candidates:
                                     if epoch_id not in epoch_to_atom_ids:
                                         epoch_to_atom_ids[epoch_id] = []
@@ -242,7 +245,7 @@ class RetrievalManager:
             # Use original_query_entities — NOT the expansion-contaminated query_entities
             for qe in original_query_entities:
                 qe_l = qe.lower()
-                is_broad = len(self.global_kg.get(qe, [])) > 5
+                is_broad = len(self.kg_manager.get_associations(qe)) > 5
                 
                 # We reward matches on THE PRECISE INTENT (The Predicate)
                 # or Narrow Entities (Subject/Object).
