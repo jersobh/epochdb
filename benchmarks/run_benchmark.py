@@ -132,6 +132,14 @@ def bench_multihop(emb: Embedder) -> dict:
         ),
     ]
 
+    # Add noise to ensure target IAC is pushed out of the top-K semantic pool.
+    noise = [
+        f"Neural network optimization variant #{i} achieves {0.8 + i/1000} accuracy."
+        for i in range(100)
+    ]
+    for n in noise:
+        chain.append((n, []))
+
     # Query is deliberately semantically BLANK with respect to every atom in the chain.
     # It references a numeric code (XR-7) that appears in NONE of the stored facts.
     # The only path to IAC is:

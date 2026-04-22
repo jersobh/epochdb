@@ -2,6 +2,12 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [0.4.6] - 2026-04-22
+### Changed
+- **Documentation Overhaul**: Rewrote `how_it_works.md` from scratch to accurately reflect the v0.4.5+ retrieval pipeline, architectural tiers, and Topic Lock mechanisms.
+- **Improved Retrieval Clarity**: Clarified the interaction between Semantic Bootstrapping, KG Seeding, and the 4-way RRF fusion process.
+
+
 ## [0.4.5] - 2026-04-13
 ### Fixed
 - **Query Entity Isolation**: The relational expansion stage was mutating `query_entities` in-place with every KG-neighbour it encountered. By the time the Topic Lock scored candidates, the original clean query intent (e.g. `{'born_in'}`) had been replaced with every entity from every atom in the candidate pool. Fixed by snapshotting `original_query_entities` as a `frozenset` before expansion begins, and using only that frozen set for Topic Lock scoring.
