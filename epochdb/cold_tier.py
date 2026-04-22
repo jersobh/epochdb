@@ -4,7 +4,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import numpy as np
 import hnswlib
-from typing import List, Optional
+from typing import List, Optional, Dict
+from collections import OrderedDict
 from .atom import UnifiedMemoryAtom
 import logging
 
@@ -17,9 +18,35 @@ class ColdTier:
     Uses Parquet format with Zstd compression and INT8 quantization.
     """
 
-    def __init__(self, storage_dir: str):
+    def __init__(self, storage_dir: str, index_cache_size: int = 10):
         self.storage_dir = storage_dir
         os.makedirs(self.storage_dir, exist_ok=True)
+        self._index_cache: OrderedDict[str, hnswlib.Index] = OrderedDict()
+        self.index_cache_size = index_cache_size
+
+    def _get_index(self, epoch_id: str, dim: int) -> Optional[hnswlib.Index]:
+        """Fetch index from cache or load from disk."""
+        if epoch_id in self._index_cache:
+            self._index_cache.move_to_end(epoch_id)
+            return self._index_cache[epoch_id]
+
+        index_path = os.path.join(self.storage_dir, f"{epoch_id}.hnsw")
+        if not os.path.exists(index_path):
+            return None
+
+        try:
+            index = hnswlib.Index(space="cosine", dim=dim)
+            index.load_index(index_path)
+            
+            # Maintain LRU size
+            if len(self._index_cache) >= self.index_cache_size:
+                self._index_cache.popitem(last=False)
+            
+            self._index_cache[epoch_id] = index
+            return index
+        except Exception as e:
+            logger.error(f"Failed to load HNSW index for {epoch_id}: {e}")
+            return None
 
     def serialize_epoch(self, epoch_id: str, atoms: List[UnifiedMemoryAtom]):
         """Flushes hot partition to Parquet blocks."""
@@ -130,12 +157,9 @@ class ColdTier:
             return []
 
         # Case 1: HNSW Fast Path
-        if os.path.exists(index_path):
+        index = self._get_index(epoch_id, len(query_emb))
+        if index:
             try:
-                # Load index (on-demand to save static RAM)
-                index = hnswlib.Index(space="cosine", dim=len(query_emb))
-                index.load_index(index_path)
-                
                 num_elements = index.element_count
                 actual_k = min(top_k, num_elements)
                 labels, distances = index.knn_query(query_emb, k=actual_k)

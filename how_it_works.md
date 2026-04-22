@@ -1,195 +1,110 @@
 # How EpochDB Works
 
-EpochDB is an **Agentic Memory Engine** that treats long-term memory as a tiered hierarchy, moving far beyond simple flat vector stores by integrating relational reasoning directly into the persistence layer.
+EpochDB is an **Agentic Memory Engine** that treats long-term memory as a tiered hierarchy. It moves beyond flat vector stores by integrating relational reasoning and atomic state management directly into the persistence layer.
 
 ---
 
 ## 1. Core Philosophy — Lossless Verbatim Storage
 
-Most AI memory systems use an LLM to automatically *compress and summarize* conversations. For example, rewriting:
+Traditional AI memory systems often use an LLM to *compress and summarize* conversations (e.g., rewriting *"I'm migrating to PostgreSQL for better JSONB performance"* into *"Likes PostgreSQL"*). This process is **fundamentally destructive**; context, nuance, and rationale are permanently discarded.
 
-> *"I'm migrating from MySQL to PostgreSQL specifically for better JSONB indexing performance"*
-
-...into:
-
-> *"Likes PostgreSQL"*
-
-This process is **fundamentally destructive**. Context, nuance, explicit trade-offs, and the rationale that makes a piece of information *useful* are permanently discarded.
-
-**EpochDB bypasses this entirely.** It stores **Unified Memory Atoms** — the raw, verbatim text paired directly with a dense embedding vector. Retrieval operates on the original source material, never on a lossy approximation.
+**EpochDB bypasses this.** It stores **Unified Memory Atoms** — raw, verbatim text paired with high-precision dense embedding vectors. Retrieval operates on original source material, ensuring the agent always has access to the full context.
 
 ---
 
 ## 2. The Tiered Architecture
 
-To manage large amounts of text without overwhelming hardware, EpochDB uses a two-tier strategy modelled after CPU cache hierarchy.
+EpochDB uses a tiered hierarchy modeled after CPU caches to balance performance and scale.
 
 ```mermaid
 graph TD
-    Agent([Agent / Application]) -->|add_memory / remember| Engine[EpochDB Engine]
+    Agent([Agent / Application]) -->|remember / add_memory| Engine[EpochDB Engine]
 
-    subgraph "L1 — Working Memory (RAM)"
-        Engine --> HNSW[HNSW Vector Index]
+    subgraph "Hot Tier — RAM (Working Memory)"
+        Engine --> HNSW_H[HNSW Vector Index]
         Engine --> WAL[ACID Write-Ahead Log]
         Engine --> KG[Active Knowledge Graph]
     end
 
-    subgraph "Epoch Checkpoint (Async)"
-        HNSW -->|daemon thread| Flush[serialize_epoch]
-        Flush -->|daemon thread| Parquet[(Parquet + F32 + Zstd)]
-    end
-
-    subgraph "L2 — Historical Archive (Disk)"
+    subgraph "Cold Tier — Disk (Historical Archive)"
+        HNSW_H -->|Async Flush| Parquet[(Parquet + F32 + Zstd)]
         Parquet <--> HNSW_C[HNSW Index per Epoch]
         HNSW_C <--> GEI[Global Entity Index]
     end
 
-    subgraph "Optional — Agentic State"
-        Engine -->|EpochDBCheckpointer| CKPT[(LangGraph Checkpoints JSON)]
+    subgraph "Retrieval Pipeline"
+        HNSW_H & HNSW_C --> Pool[Candidate Pool]
+        Pool --> KG_Exp[KG Expansion & Topic Lock]
+        KG_Exp --> RRF[4-Way RRF Fusion + Supersession]
+        RRF --> Context[Agentic Context]
     end
 ```
 
-### L1 — Hot Tier (Working Memory)
+### Hot Tier (Working Memory)
+Recent memories live entirely in RAM for sub-millisecond access:
+- **HNSW Index**: Enables extremely fast approximate nearest-neighbor lookups.
+- **ACID Write-Ahead Log (WAL)**: Every write is synchronized to disk before being committed to memory, ensuring 100% crash recovery.
+- **Active KG**: Maps entities to atoms in real-time.
 
-Recent memories live entirely in RAM:
-
-- **HNSW Vector Index** (`hnswlib`): Hierarchical Navigable Small World graph enables approximate nearest-neighbour lookup in sub-millisecond time. The index auto-resizes when it approaches capacity.
-- **ACID Write-Ahead Log**: Every `add_memory` call is first appended to a `wal.jsonl` file on disk and `fsync`'d before the in-memory write. On the next startup, any `ADD` records not followed by a `COMMIT` are replayed into the Hot Tier, providing genuine crash recovery.
-- **Active Knowledge Graph**: A live in-memory dict maps entity strings to `[atom_id, epoch_id]` pairs, enabling relational lookup without loading any Parquet files.
-
-### L2 — Cold Tier (Historical Archive)
-
-Every epoch is serialized into a immutable Parquet file accompanied by a **Persistent HNSW Index** (`.hnsw`).
-
-1. The Hot Tier is cleared immediately, so the agent continues uninterrupted.
-2. A daemon thread serializes the epoch's atoms to a `.parquet` file.
-3. A corresponding HNSW index is built for the epoch's embeddings and saved to disk.
-4. The WAL is cleared **only after** both the Parquet and HNSW writes succeed.
-
-This tiered indexing allows EpochDB to scale to millions of atoms across hundreds of epochs without $O(N)$ linear scan penalties.
-
-Each Cold Tier file is compressed with **Zstandard (Zstd)** for efficient disk storage. Embeddings are stored at full **float32** precision to ensure retrieval ranking is 100% numerically stable — INT8 quantization was removed in v0.4.5 after analysis showed its 1–2% precision noise could cause ranking upsets in high-precision recall scenarios.
+### Cold Tier (Historical Archive)
+As epochs expire (or on demand), the Hot Tier is flushed to disk:
+- **Parquet + F32**: Atoms are stored in Parquet files using **full float32 precision** to eliminate quantization noise.
+- **Zstd Compression**: High-ratio compression for efficient storage.
+- **Persistent HNSW Index**: Every epoch on disk has its own HNSW index, allowing the engine to search millions of historical atoms in milliseconds without $O(N)$ linear scans.
 
 ---
 
-## 3. Write Path — From Atom to Disk
+## 3. The 5-Stage Retrieval Pipeline
 
-```
-add_memory(payload, embedding, triples)
-    │
-    ├─ [1] WAL.append("ADD", atom.to_dict())   ← fsync to disk
-    │
-    ├─ [2] HotTier._add_atom(atom)             ← HNSW + dict
-    │
-    ├─ [3] WAL.append("COMMIT", {})            ← transaction boundary
-    │
-    └─ [4] global_kg[entity].append([atom_id, epoch_id])
-                                               ← batched to disk every 50 writes
-```
+EpochDB uses a multi-stage pipeline to ensure perfect recall, even in high-noise or multi-hop scenarios.
 
-The entire write (WAL + HNSW + KG) is wrapped in a `MultiIndexTransaction` context manager. If any step raises, a `ROLLBACK` record is appended and the exception propagates.
+### Stage 1: Parallel Semantic Hook
+The engine simultaneously queries the Hot Tier HNSW and every Cold Tier epoch's HNSW index. It fetches a large candidate pool (`top_k * 10`) to provide enough surface area for subsequent rank fusion.
 
----
+### Stage 2: Semantic Bootstrapping
+If no explicit `query_entities` are provided, the engine extracts entities from the top 2 semantic hits in the Hot Tier (provided they exceed a 0.5 similarity threshold). This allows vector-only queries to "bootstrap" their way into relational reasoning.
 
-## 4. Retrieval — 5-Stage Pipeline
+### Stage 3: Global KG Seeding (Topic Lock)
+The engine pulls ALL atoms associated with the query's entities from the Global Entity Index. This ensures that even semantically distant facts (the "Needle") are captured if they belong to the correct topic.
 
-```mermaid
-graph LR
-    Q([Query embedding]) --> S1[Hot Tier HNSW\ntop_k × 10 candidates]
-    Q --> S1a[Global KG Entity Hook\nSeed candidates from query_entities]
-    Q --> S2[Cold Tier brute-force\ntop_k × 10 per epoch]
+### Stage 4: Relational Expansion
+For each atom in the candidate pool, the engine traverses the Knowledge Graph for $N$ hops (controlled by `expand_hops`). This connects disparate facts across different epochs, enabling multi-hop reasoning.
 
-    S1 & S1a & S2 --> C[Candidate Pool]
-
-    C --> E{expand_hops > 0?}
-    E -->|Yes| KG[Traverse Global KG\nN hops]
-    KG --> C
-
-    C --> D[Payload Deduplication]
-    D --> R[3-Way RRF Ranking]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Stage 1 & 2 — Parallel Retrieval
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Both tiers are searched simultaneously:
-
-- **Hot Tier**: `hnswlib.knn_query` returns the most relevant recent hits. We fetch a large pool (`top_k * 10`) to provide surface area for rank fusion.
-- **Stage 1a — Entity Hook (Topic Lock Seeding)**: If the user provides explicit `query_entities`, the engine proactively seeds the candidate pool by pulling ALL atoms associated with those entities in the Global KG. This ensures that even semantically distant facts (the "Needle") are always considered if they belong to the requested topic.
-- **Cold Tier**: Each epoch's `.hnsw` index is queried (`top_k * 10`). We aggregate candidates from across all historical epochs, bypassing linear Parquet scans.
-
-### Stage 3 — Relational Expansion
-
-For each atom in the candidate pool, its KG triples are extracted to get subject/object entities. The **Global Entity Index** maps those entities to `[atom_id, epoch_id]` pairs, which are then fetched (Hot first, then Cold). This repeats for `expand_hops` iterations, building a graph neighbourhood around the initial semantic hit.
-
-This is what allows EpochDB to answer questions like *"what technology does Jeff's project use?"* even when `Jeff`, `Project X`, and `Parquet` are stored in three different Parquet files across different sessions.
-
-Identical payload strings are deduplicated.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Stage 5 — 4-Way Fusion & Supersession
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-EpochDB uses a customized **Reciprocal Rank Fusion (RRF)** pipeline with an integrated **Topic Lock** and **State Filter**:
+### Stage 5: 4-Way RRF Fusion & Supersession
+This is the "brain" of EpochDB. It combines four distinct signals using **Reciprocal Rank Fusion (RRF)**:
 
 | Pillar | Mechanism | Description |
 |---|---|---|
-| **Semantic** | RRF Rank | Cosine similarity to query |
-| **Recency** | RRF Rank | Strictly monotonic timestamps; `(created_at, atom.id)` used as composite sort key for deterministic tie-breaking |
-| **Entities** | RRF Rank | Overlap with query-extracted entities |
-| **Topic Lock** | Additive Bonus `+20.0` | Scored against a **frozen snapshot** of `original_query_entities`, taken before graph expansion. Prevents expansion-induced entity contamination from granting unearned boosts. |
-| **Signal-to-Noise Filter** | Post-fusion demotion | If any atom achieves ≥ 20.0 (Topic Lock triggered), all non-signal atoms are further demoted by `1e-7`, making intent-matched facts mathematically unreachable by noise. |
-| **Supersession** | Multiplier `0.0001×` | Stale factual states (same Subject/Predicate, older atom) are penalized while the latest fact wins. |
+| **Semantic** | RRF Rank | Proximity in embedding space. |
+| **Recency** | RRF Rank | Strictly monotonic timestamps for deterministic ordering. |
+| **Entities** | RRF Rank | Overlap with query entities (including expanded context). |
+| **Topic Lock** | `+20.0` Bonus | A "nuclear" additive bonus for atoms matching the **original** query intent. |
+
+#### Signal-to-Noise Filtering
+If any atom achieves the **Topic Lock** (score ≥ 20), all remaining "noise" atoms (those without the lock) are aggressively demoted by a factor of `1e-7`. This makes intent-matched facts mathematically unreachable by semantic noise.
+
+#### State-Aware Supersession
+EpochDB identifies "stale" facts by tracking Subject-Predicate pairs. Older atoms are penalized by a `0.0001x` multiplier, ensuring that if you tell the agent you moved from "Lisbon" to "Porto", the "Porto" atom always wins.
 
 ---
 
-## 5. Crash Recovery
+## 4. Crash Recovery & Resilience
 
-On `EpochDB.__init__`, the WAL is read before any other operation:
-
-```
-startup
-  │
-  ├─ read wal.jsonl
-  │    ├─ replay uncommitted ADD records → Hot Tier
-  │    └─ restore their entities → Global KG
-  │
-  └─ clear WAL
-```
-
-If a process was killed mid-transaction, the uncommitted atoms are silently restored without any user action. The lock file contains the owning PID; stale locks (dead process) are auto-removed.
+On startup, EpochDB automatically replays the Write-Ahead Log (WAL). Any memory atoms that were in flight but not yet flushed to the Cold Tier are restored to the Hot Tier and Global KG. This ensures that even in the event of a hard crash, no data is lost.
 
 ---
 
-## 6. LangGraph Integration
+## 5. Metadata & Configuration
 
-EpochDB ships a `EpochDBCheckpointer` — a native `BaseCheckpointSaver` implementation that stores LangGraph thread checkpoints as JSON files inside the same storage directory as the memory atoms.
-
-```
-.epochdb_data/
-├── metadata.json          ← dimensionality enforcement
-├── global_kg.json         ← Global Entity Index
-├── wal.jsonl              ← Write-Ahead Log
-├── epoch_3f2a1b8c.parquet ← Cold Tier epoch
-├── epoch_7e4d9c12.parquet
-└── checkpoints/
-    └── thread_001/
-        ├── cp_abc123.ckpt.json   ← LangGraph state
-        └── cp_abc123.<task>.writes.json
-```
-
-This means a single `EpochDB` instance provides both long-term associative memory **and** short-term agentic workflow state, sharing one storage directory and one initialization path.
-
-See [`example_langgraph.py`](example_langgraph.py) for a complete multi-session implementation.
-
----
-
-## 7. Key Configuration Parameters
-
-| Parameter | Default | Description |
+| Parameter | Default | Purpose |
 |---|---|---|
-| `storage_dir` | `./.epochdb_data` | Root directory for all persisted state |
-| `dim` | `384` | Embedding dimension (enforced; raises on mismatch) |
-| `epoch_duration_secs` | `3600` | Seconds before Hot Tier auto-flushes to Cold |
-| `hot_tier_capacity` | `10_000` | Initial HNSW index capacity (auto-resizes) |
-| `saliency_threshold` | `0.1` | Minimum cosine similarity for Cold Tier candidates |
-| `model` | `None` | Optional `SentenceTransformer` model name for auto-embedding |
+| `storage_dir` | `./.epochdb_data` | Root for all persistence. |
+| `dim` | (Enforced) | Embedding dimensionality. |
+| `epoch_duration_secs` | `3600` | Frequency of RAM-to-disk flushes. |
+| `saliency_threshold` | `0.1` | Minimum cosine similarity for candidates. |
+
+---
+
+## 6. Integration: LangGraph Checkpointing
+
+EpochDB includes a native `EpochDBCheckpointer` for LangGraph. It stores thread state as JSON alongside your long-term memories, providing a single, unified persistence layer for both agentic "short-term" state and "long-term" memory.

@@ -13,6 +13,7 @@ from .hot_tier import HotTier
 from .cold_tier import ColdTier
 from .transaction import WriteAheadLog, FileLock, MultiIndexTransaction
 from .retrieval import RetrievalManager
+from .kg_manager import KGManager
 
 logger = logging.getLogger(__name__)
 
@@ -76,17 +77,9 @@ class EpochDB:
         # --- WAL ---
         self.wal = WriteAheadLog(os.path.join(self.storage_dir, "wal.jsonl"))
 
-        # --- Global Entity Index ---
-        self.global_kg_file = os.path.join(self.storage_dir, "global_kg.json")
-        self.global_kg: Dict[str, List[List[str]]] = {}
-        if os.path.exists(self.global_kg_file):
-            try:
-                with open(self.global_kg_file, "r") as f:
-                    self.global_kg = json.load(f)
-            except Exception as e:
-                logger.error(f"Failed to load global KG: {e}")
-
-        self._kg_dirty_count = 0  # Tracks unsaved KG mutations.
+        # --- Global Entity Index (Disk-Direct) ---
+        self.global_kg_db = os.path.join(self.storage_dir, "global_kg.db")
+        self.kg_manager = KGManager(self.global_kg_db)
 
         self.current_epoch_id = f"epoch_{uuid.uuid4().hex[:8]}"
         self.epoch_start_time = time.time()
@@ -98,7 +91,7 @@ class EpochDB:
         self.cold_tier = ColdTier(self.storage_dir)
 
         # --- Retrieval ---
-        self.retriever = RetrievalManager(self.hot_tier, self.cold_tier, self.global_kg)
+        self.retriever = RetrievalManager(self.hot_tier, self.cold_tier, self.kg_manager)
 
         # --- Persistent Access Deltas (cold-tier saliency across restarts) ---
         self._access_deltas_file = os.path.join(self.storage_dir, "access_deltas.json")
@@ -149,23 +142,18 @@ class EpochDB:
                 atom = UnifiedMemoryAtom.from_dict(atom_dict)
                 self.hot_tier._add_atom(atom)
                 # Restore KG associations.
+                associations = []
                 for subj, pred, obj in atom.triples:
-                    if subj not in self.global_kg:
-                        self.global_kg[subj] = []
-                    if obj not in self.global_kg:
-                        self.global_kg[obj] = []
-                    entry = [atom.id, atom.epoch_id]
-                    if entry not in self.global_kg[subj]:
-                        self.global_kg[subj].append(entry)
-                    if entry not in self.global_kg[obj]:
-                        self.global_kg[obj].append(entry)
+                    associations.append((subj, atom.id, atom.epoch_id))
+                    associations.append((obj, atom.id, atom.epoch_id))
                     self.predicates.add(pred)
+                self.kg_manager.add_associations_batch(associations)
             except Exception as e:
                 logger.error(f"Failed to replay atom from WAL: {e}")
 
         # Clear WAL now that atoms are safely in the Hot Tier.
         self.wal.clear()
-        self._save_global_kg(force=True)
+        self.kg_manager.commit()
         logger.info("WAL replay complete.")
 
     # -------------------------------------------------------------------------
@@ -204,14 +192,13 @@ class EpochDB:
             tx.add(atom)
 
         # Update Global Entity Index.
+        associations = []
         for subj, pred, obj in triples:
             for entity in (subj, pred, obj):
-                if entity not in self.global_kg:
-                    self.global_kg[entity] = []
-                self.global_kg[entity].append([atom.id, self.current_epoch_id])
+                associations.append((entity, atom.id, self.current_epoch_id))
             self.predicates.add(pred)
-
-        self._save_global_kg()
+        
+        self.kg_manager.add_associations_batch(associations)
         self._check_epoch_expiry()
         return atom.id
 
@@ -279,7 +266,7 @@ class EpochDB:
                      "they", "their", "who", "what", "where", "when", "how"}
 
         # --- Pass 1: Subjects/Objects must literally appear in the query ---
-        for ent in self.global_kg.keys():
+        for ent in self.kg_manager.get_all_entities():
             if ent.lower() in blacklist:
                 continue
             ent_l = ent.lower()
@@ -439,18 +426,6 @@ class EpochDB:
     # Persistence Helpers
     # -------------------------------------------------------------------------
 
-    def _save_global_kg(self, force: bool = False):
-        """
-        Persist the Global Entity Index to disk.
-        Batches writes: only flushes every _KG_FLUSH_INTERVAL mutations
-        unless `force=True`.
-        """
-        self._kg_dirty_count += 1
-        if force or self._kg_dirty_count >= _KG_FLUSH_INTERVAL:
-            with open(self.global_kg_file, "w") as f:
-                json.dump(self.global_kg, f)
-            self._kg_dirty_count = 0
-
     def _save_access_deltas(self):
         """Persist access-count deltas to disk so saliency survives restarts."""
         try:
@@ -461,7 +436,7 @@ class EpochDB:
 
     def close(self):
         """Flush all pending state and release resources."""
-        self._save_global_kg(force=True)
+        self.kg_manager.close()
         self._save_access_deltas()
         self.wal.close()
         self.lock.release()
