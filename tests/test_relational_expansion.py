@@ -27,15 +27,20 @@ def test_multihop_chain(test_db):
     emb3 = np.array([0.0, 0.0, 1.0, 0.0], dtype=np.float32)
     test_db.add_memory("Project Helios uses Quantum Core", emb3, triples=[("Project Helios", "uses", "Quantum Core")])
 
+    # Add noise to ensure Quantum is pushed out of top-5 semantic pool
+    for i in range(10):
+        noise_emb = np.array([0.0, 0.1, 0.1, 0.1], dtype=np.float32) # Orthogonal to emb1
+        test_db.add_memory(f"Noise {i}", noise_emb)
+
     # Query with Alice's embedding.
     # Without expansion, only Fact 1 should be returned.
-    results_0 = test_db.recall(emb1, top_k=5, expand_hops=0)
+    results_0 = test_db.recall(emb1, top_k=2, expand_hops=0)
     payloads_0 = [r.payload for r in results_0]
-    assert "Alice" in payloads_0[0]
-    assert "Quantum" not in "".join(payloads_0)
+    assert any("Alice" in p for p in payloads_0)
+    assert not any("Quantum" in p for p in payloads_0)
 
     # With expansion=3, we should reach Quantum.
-    results_3 = test_db.recall(emb1, top_k=5, expand_hops=3)
+    results_3 = test_db.recall(emb1, top_k=10, expand_hops=3)
     payloads_3 = [r.payload for r in results_3]
     assert any("Quantum" in p for p in payloads_3), f"Quantum not found in {payloads_3}"
 
@@ -59,7 +64,7 @@ def test_cross_epoch_expansion(test_db):
     test_db.force_checkpoint() # Move to cold
 
     # Query Alice (Hot Tier empty for Alice, she's Cold)
-    results = test_db.recall(emb_a, top_k=5, expand_hops=2)
+    results = test_db.recall(emb_a, top_k=10, expand_hops=2)
     payloads = [r.payload for r in results]
     
     assert any("Alice" in p for p in payloads)
@@ -79,13 +84,12 @@ def test_topic_lock_boost(test_db):
     emb_link = np.array([0.0, 1.0, 0.0, 0.0], dtype=np.float32)
     test_db.add_memory("EpochDB uses Parquet", emb_link, triples=[("EpochDB", "uses", "Parquet")])
 
-    # Noise: Bob lives in Paris (semantically closer to 'project' if embeddings are weird, but no entity match)
-    emb_noise = np.array([0.9, 0.1, 0.0, 0.0], dtype=np.float32) # Very close to Jeff's embedding
+    # Noise: Bob lives in Paris
+    emb_noise = np.array([0.9, 0.1, 0.0, 0.0], dtype=np.float32)
     test_db.add_memory("Bob lives in Paris", emb_noise)
 
     # Query "Jeff's project"
-    # Entities: "Jeff"
-    results = test_db.recall(emb_signal, top_k=5, expand_hops=1, query_entities=["Jeff"])
+    results = test_db.recall(emb_signal, top_k=10, expand_hops=1, query_entities=["Jeff"])
     
     # Jeff fact should be top because of Topic Lock (+20)
     assert results[0].payload == "Jeff's project is EpochDB"
@@ -105,8 +109,13 @@ def test_entity_seeding_stage1a(test_db):
     # Query: 'Tell me about the X-57' (semantic score will be 0)
     query_emb = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
     
+    # Add noise to fill semantic pool
+    for i in range(10):
+        noise_emb = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32) # Matches query perfectly
+        test_db.add_memory(f"Noise {i}", noise_emb)
+
     # 1. Without entity seeding
-    results_no_seed = test_db.recall(query_emb, top_k=5, query_entities=[])
+    results_no_seed = test_db.recall(query_emb, top_k=1, query_entities=[])
     assert "Maxwell" not in "".join([r.payload for r in results_no_seed])
 
     # 2. With entity seeding

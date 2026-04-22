@@ -74,9 +74,13 @@ class RetrievalManager:
         # locking mechanisms.
         if not query_entities and hot_hits:
             for atom in hot_hits[:2]:  # Use only high-confidence hits
-                for s, p, o in atom.triples:
-                    query_entities.add(s)
-                    query_entities.add(o)
+                score = np.dot(atom.embedding, query_emb) / (
+                    np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10
+                )
+                if score > 0.5:
+                    for s, p, o in atom.triples:
+                        query_entities.add(s)
+                        query_entities.add(o)
 
         # --- 1a. Entity Hook: Global KG Seeding ---
         # If query entities match Global KG entries, we pull them in as candidates 
