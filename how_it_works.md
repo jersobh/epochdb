@@ -108,3 +108,19 @@ On startup, EpochDB automatically replays the Write-Ahead Log (WAL). Any memory 
 ## 6. Integration: LangGraph Checkpointing
 
 EpochDB includes a native `EpochDBCheckpointer` for LangGraph. It stores thread state as JSON alongside your long-term memories, providing a single, unified persistence layer for both agentic "short-term" state and "long-term" memory.
+
+---
+
+## 7. Memory Forking & Lineage (v0.5.0)
+
+EpochDB v0.5.0 introduces **Logical Forking**. This allows an application to create a branch in the memory timeline without duplicating the underlying vector data.
+
+### How it Works
+When `db.fork(parent_epoch_id, new_epoch_id)` is called:
+1. A new association is added to the **Global Entity Index** (`parent_epoch_id \u2192 forked_to \u2192 new_epoch_id`).
+2. The retrieval pipeline can optionally traverse these fork links to include memories from "ancestor" epochs while maintaining a distinct "descendant" state.
+
+This is particularly useful for:
+- **Agentic Parallelism**: Multiple agents branching from a common knowledge base.
+- **Hypothetical Reasoning**: Testing "what-if" scenarios in a separate memory branch.
+- **Thread Isolation**: Isolating user conversations while sharing core system knowledge.

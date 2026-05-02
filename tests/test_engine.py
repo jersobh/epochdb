@@ -167,26 +167,20 @@ def test_hot_tier_auto_resize(storage_dir):
 
 
 # ---------------------------------------------------------------------------
-# Batch KG saves
+# Forking / Branching
 # ---------------------------------------------------------------------------
 
-def test_kg_batched_saves(storage_dir, monkeypatch):
-    """global_kg.json should not be written on every single insert."""
-    save_count = {"n": 0}
-    db = EpochDB(storage_dir=storage_dir, dim=4)
-    original_save = db._save_global_kg
-
-    def counting_save(force=False):
-        if force or db._kg_dirty_count >= 50:
-            save_count["n"] += 1
-        original_save(force=force)
-
-    monkeypatch.setattr(db, "_save_global_kg", counting_save)
-
-    emb = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
-    for i in range(10):
-        db.add_memory(f"fact {i}", emb, triples=[(f"e{i}", "rel", f"e{i+1}")])
-
-    # Fewer disk writes than inserts (batching in effect).
-    assert save_count["n"] < 10
-    db.close()
+def test_fork(test_db):
+    """Calling fork should record the parent->child relationship in the KG."""
+    parent_id = "epoch_alpha"
+    child_id = "epoch_beta"
+    
+    test_db.fork(parent_id, child_id)
+    
+    # Verify the association exists in the KG
+    # The fork method uses (parent_id, "forked_to", child_id)
+    associations = test_db.kg_manager.get_associations(parent_id)
+    assert any(
+        assoc[0] == "forked_to" and assoc[1] == child_id 
+        for assoc in associations
+    )

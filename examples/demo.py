@@ -1,5 +1,5 @@
 """
-demo.py — EpochDB v0.4.1 Self-Contained Walkthrough
+demo.py — EpochDB v0.5.0 Self-Contained Walkthrough
 =====================================================
 Demonstrates all core features using Gemini embeddings (gemini-embedding-2-preview)
 and the new auto-embedding convenience API.
@@ -65,7 +65,7 @@ def main():
         shutil.rmtree(storage_dir, ignore_errors=True)
         time.sleep(0.3)
 
-    hr("EpochDB v0.4.1 — Feature Walkthrough")
+    hr("EpochDB v0.5.0 — Feature Walkthrough")
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -192,6 +192,20 @@ def main():
         print(f"  {RD}✗ WAL replay did not recover the atom.{R}")
 
     db2.close()
+
+    # ── STEP 7: Memory Forking (Lineage) ──────────────────────────────────────
+    hr("Step 7 — Memory Forking (Lineage)")
+
+    parent_epoch = db2.current_epoch_id
+    child_epoch  = "epoch_branch_b"
+    
+    print(f"  {YL}Creating a logical fork: {parent_epoch} u2192 {child_epoch}{R}")
+    db2.fork(parent_epoch, child_epoch)
+
+    # Verify in KG
+    assocs = db2.kg_manager.get_associations_for_entity(parent_epoch)
+    if any(a[0] == "forked_to" and a[1] == child_epoch for a in assocs):
+        print(f"  {GN}{BD}u2713 Fork recorded successfully in Global KG.{R}")
 
     hr("Demo Complete")
     print(f"  All data persisted in {CY}{storage_dir}{R}")

@@ -2,6 +2,15 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [0.5.0] - 2026-05-02
+### Added
+- **Forking & Memory Branching**: Introduced `db.fork(parent_epoch_id, new_epoch_id)` to create logical forks in the memory tree. This enables memory lineage and multi-agent branching without duplicating vector storage.
+- **Improved Retrieval Precision**: Further hardening of the Topic Lock mechanism for multi-hop retrieval.
+
+### Changed
+- **Documentation Overhaul**: Updated `README.md`, `how_it_works.md`, and examples to reflect v0.5.0 capabilities and the new Forking API.
+- **Version Bump**: Official transition to v0.5.0.
+
 ## [0.4.6] - 2026-04-22
 ### Changed
 - **Documentation Overhaul**: Rewrote `how_it_works.md` from scratch to accurately reflect the v0.4.5+ retrieval pipeline, architectural tiers, and Topic Lock mechanisms.

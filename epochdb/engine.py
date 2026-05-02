@@ -348,6 +348,21 @@ class EpochDB:
         )
 
     # -------------------------------------------------------------------------
+    # Branching
+    # -------------------------------------------------------------------------
+    
+    def fork(self, parent_epoch_id: str, new_epoch_id: str):
+        """
+        Creates a logical fork in the memory tree.
+        Logs the branching event to the Knowledge Graph to maintain lineage without 
+        duplicating massive vector stores.
+        """
+        self.kg_manager.add_associations_batch([
+            (parent_epoch_id, "forked_to", new_epoch_id)
+        ])
+        logger.info(f"Forked epoch {parent_epoch_id} -> {new_epoch_id}")
+
+    # -------------------------------------------------------------------------
     # Epoch Lifecycle
     # -------------------------------------------------------------------------
 
