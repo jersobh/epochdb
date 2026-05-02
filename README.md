@@ -3,7 +3,7 @@
 **EpochDB** is a high-performance, state-aware memory engine designed for lossless, tiered storage and multi-hop relational reasoning. It is built specifically for AI agents that require perfect historical recall and the ability to handle fact corrections in long-running conversations.
 
 > [!IMPORTANT]
-> **v0.4.5 Release**: Now delivering a **perfect 1.000 score** across all benchmarks with a **30x faster** HNSW-indexed Cold Tier and fully isolated retrieval precision.
+> **v0.5.0 Release**: Now delivering a **perfect 1.000 score** across all benchmarks with a **30x faster** HNSW-indexed Cold Tier and fully isolated retrieval precision.
 
 ---
 
@@ -14,6 +14,7 @@ Standard vector databases are *flat* — they answer "what is semantically simil
 - **Topic Lock & Entity Seeding**: Architectural precision that ensures retrieval stays within the correct topic (e.g., employment) by seeding candidates directly from the Knowledge Graph.
 - **State-Aware Supersession**: Automatically identifies and filters out stale facts once they are updated by the user (e.g., "Lisbon" → "Porto").
 - **Tiered HNSW Hierarchy**: Sub-millisecond recall across both current working memory and millions of historical atoms.
+- **Memory Forking & Lineage**: Create logical branches in the memory tree (`db.fork`) to support multi-agent collaboration and hypothetical reasoning without data duplication.
 
 ---
 
@@ -49,7 +50,7 @@ graph TD
 
 ## Performance — The 1.000 Sweep
 
-EpochDB v0.4.5 is the first memory engine to achieve a perfect 1.000 score across the comprehensive named benchmark suite:
+EpochDB v0.5.0 is the first memory engine to achieve a perfect 1.000 score across the comprehensive named benchmark suite:
 
 | Benchmark | What it tests | Result | Status |
 |---|---|---|---|
