@@ -94,6 +94,16 @@ with EpochDB(storage_dir="./memory", model="gemini-embedding-2-preview") as db:
     # 3. Recall stays accurate despite the conflict
     results = db.recall_text("Where does the user work?", top_k=1)
     print(results[0].payload) # Output: "Actually, user now works at VectorAI."
+
+    # 4. Quantitative Logic Demo
+    from epochdb.atom import ScalarPayload
+    with EpochDB(storage_dir="./quant_memory") as db:
+        # Add a scalar with units
+        temp = ScalarPayload(value=28.5, unit="C")
+        db.add_memory(payload=temp, embedding=np.zeros(3072), triples=[("room_1", "temperature", "28.5")])
+        
+        # Precise range query (Bypass semantic search)
+        hot_rooms = db.retriever.query_range("temperature", 25.0, 30.0, unit="C")
 ```
 
 ### LangGraph Integration
@@ -115,6 +125,9 @@ with EpochDB(storage_dir="./agent_state") as db:
 - **The Nuclear Lock & Entity Seeding**: A discrete `+20.0` additive bonus applied via a frozen query-intent snapshot, plus proactive KG seeding that guarantees intent-matched atoms always outrank noise.
 - **State Filtering**: Superseded factual atoms are penalized by `0.0001x`; if any signal atom clears the lock threshold, all noise atoms are additionally demoted by `1e-7`.
 - **Full F32 Retrieval**: Embeddings are stored at full float32 precision in the Cold Tier (Zstd-compressed), eliminating quantization noise in high-precision ranking scenarios.
+- **Quantitative Logic & Triggers**: Native support for Scalars, Time-Series, and Constraints. `IntervalTree` enables precise $O(\log n + k)$ range queries with base-unit normalization via persistent `schema_registry.json`.
+- **Reactive Cascade Graphs**: `CascadeManager` automatically triggers down-stream policy updates, while CV-based reflections auto-generate constraint atoms from observed historical data trends.
+- **Analytical Cold Tier**: Leveraging `pyarrow.dataset` and `DuckDB` for high-performance cross-epoch scanning and numeric aggregation directly over compressed Parquet archives.
 - **ACID Crash Recovery**: Zero data loss for in-flight memories via the synchronous Write-Ahead Log.
 
 ---
