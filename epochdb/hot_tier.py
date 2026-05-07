@@ -2,7 +2,8 @@ import hnswlib
 import numpy as np
 import logging
 from typing import Dict, List
-from .atom import UnifiedMemoryAtom
+from .atom import UnifiedMemoryAtom, PayloadType
+from .quantitative_index import QuantitativeIndexManager
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +18,11 @@ class HotTier:
     Auto-resizes the HNSW index as capacity approaches the limit.
     """
 
-    def __init__(self, dim: int, max_elements: int = 10_000):
+    def __init__(self, dim: int, max_elements: int = 10_000, storage_dir: Optional[str] = None):
+        from typing import Optional
         self.dim = dim
         self.max_elements = max_elements
+        self.storage_dir = storage_dir
 
         # HNSW Index for Vectors
         self.vector_index = hnswlib.Index(space="cosine", dim=self.dim)
@@ -34,6 +37,11 @@ class HotTier:
         self.uuid_to_int: Dict[str, int] = {}
         self.int_to_uuid: Dict[int, str] = {}
         self._next_int_id = 0
+
+        # Quantitative Indices
+        from .units import UnitRegistry
+        self.unit_registry = UnitRegistry()
+        self.quant_index = QuantitativeIndexManager(self.unit_registry, storage_dir=self.storage_dir)
 
     def _maybe_resize(self):
         """Double the index capacity if we're approaching the limit."""
@@ -69,6 +77,9 @@ class HotTier:
         # Store atom payload.
         self.atoms[atom.id] = atom
 
+        # Index quantitative data.
+        self.quant_index.index_atom(atom)
+
     def query_vector(self, query_emb: np.ndarray, top_k: int = 5) -> List[UnifiedMemoryAtom]:
         if len(self.atoms) == 0:
             return []
@@ -95,3 +106,4 @@ class HotTier:
         self.vector_index.init_index(
             max_elements=self.max_elements, ef_construction=200, M=16
         )
+        self.quant_index.clear()

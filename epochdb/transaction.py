@@ -120,9 +120,11 @@ class WriteAheadLog:
                         op = record.get("op")
                         if op == "ADD":
                             pending.append(record["data"])
-                        elif op in ("COMMIT", "ROLLBACK"):
-                            # COMMIT → these atoms are safe; clear pending set.
-                            # ROLLBACK → discard pending atoms.
+                        elif op == "COMMIT":
+                            # COMMIT means the atoms are safe to restore to Hot Tier.
+                            pass
+                        elif op == "ROLLBACK":
+                            # ROLLBACK means discard the pending atoms.
                             pending = []
                     except json.JSONDecodeError:
                         continue

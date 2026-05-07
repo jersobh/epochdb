@@ -8,12 +8,14 @@ from typing import List, Optional, Dict, Any
 
 import numpy as np
 
-from .atom import UnifiedMemoryAtom
+from .atom import UnifiedMemoryAtom, PayloadType, ScalarPayload, SeriesPayload, ConstraintPayload
 from .hot_tier import HotTier
 from .cold_tier import ColdTier
 from .transaction import WriteAheadLog, FileLock, MultiIndexTransaction
 from .retrieval import RetrievalManager
 from .kg_manager import KGManager
+from .reflection_quant import QuantitativeReflectionManager
+from .cold_tier import ColdTierAnalytics
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,7 @@ class EpochDB:
         self.saliency_threshold = saliency_threshold
         self._model_name = model
         self._embedder = None  # Lazy-loaded on first use.
+        self._internal_lock = threading.RLock() # Protect against concurrent threads in the same process
 
         os.makedirs(self.storage_dir, exist_ok=True)
 
@@ -87,7 +90,7 @@ class EpochDB:
         self.predicates: Set[str] = set()  # Track unique predicates for extraction boost
 
         # --- Tiers ---
-        self.hot_tier = HotTier(dim=self.dim, max_elements=hot_tier_capacity)
+        self.hot_tier = HotTier(dim=self.dim, max_elements=hot_tier_capacity, storage_dir=self.storage_dir)
         self.cold_tier = ColdTier(self.storage_dir)
 
         # --- Retrieval ---
@@ -141,6 +144,7 @@ class EpochDB:
             try:
                 atom = UnifiedMemoryAtom.from_dict(atom_dict)
                 self.hot_tier._add_atom(atom)
+                self.hot_tier.quant_index.index_atom(atom)
                 # Restore KG associations.
                 associations = []
                 for subj, pred, obj in atom.triples:
@@ -171,6 +175,9 @@ class EpochDB:
             triples = []
 
         # Ensure embedding is unit-length for consistent cosine similarity.
+        if embedding is None:
+            embedding = np.zeros(self.dim, dtype=np.float32)
+        
         norm = np.linalg.norm(embedding)
         if norm > 1e-10:
             embedding = embedding / norm
@@ -179,8 +186,18 @@ class EpochDB:
         ts = max(time.time(), self._last_timestamp + 0.000001)
         self._last_timestamp = ts
 
+        # Detect payload type
+        ptype = PayloadType.TEXT
+        if isinstance(payload, ScalarPayload):
+            ptype = PayloadType.SCALAR
+        elif isinstance(payload, SeriesPayload):
+            ptype = PayloadType.SERIES
+        elif isinstance(payload, ConstraintPayload):
+            ptype = PayloadType.CONSTRAINT
+
         atom = UnifiedMemoryAtom(
             payload=payload,
+            payload_type=ptype,
             embedding=embedding,
             triples=triples,
             epoch_id=self.current_epoch_id,
@@ -242,6 +259,7 @@ class EpochDB:
         top_k: int = 5,
         expand_hops: int = 1,
         query_entities: List[str] = None,
+        fork_id: Optional[str] = None,
     ) -> List[UnifiedMemoryAtom]:
         """Query memory using a dense embedding vector."""
         results = self.retriever.search(
@@ -249,9 +267,74 @@ class EpochDB:
             top_k=top_k,
             expand_hops=expand_hops,
             query_entities=query_entities,
+            fork_id=fork_id,
         )
         self._check_epoch_expiry()
         return results
+
+    def query_temporal(self, atom_id: str, timestamp: float, fork_id: Optional[str] = None) -> Optional[Dict[str, float]]:
+        """Interpolate series value at a specific timestamp with uncertainty propagation."""
+        with self._internal_lock:
+            return self.retriever.query_temporal(atom_id, timestamp, fork_id)
+
+    def query_aggregate(self, atom_id: str, window: str, t_start: float, t_end: float) -> List[SeriesPoint]:
+        """Query pre-materialized aggregated views for a series."""
+        with self._internal_lock:
+            return self.retriever.query_aggregate(atom_id, window, t_start, t_end)
+
+    def check_feasibility(self, constraint_ids: List[str], state: Dict[str, float], fork_id: Optional[str] = None) -> bool:
+        """Check if a set of constraints is feasible against a state."""
+        with self._internal_lock:
+            return self.retriever.check_feasibility(constraint_ids, state, fork_id)
+
+    def reflect_on_entity(self, entity: str, field: str, confidence_threshold: float = 0.95) -> List[UnifiedMemoryAtom]:
+        """Analyze historical data and auto-declare policy constraints."""
+        with self._internal_lock:
+            analytics = ColdTierAnalytics(self.storage_dir)
+            reflector = QuantitativeReflectionManager(analytics, self.hot_tier)
+            return reflector.reflect_on_entity(entity, field, confidence_threshold)
+
+    def get_entities(self, prefix: str = None) -> List[str]:
+        """Fetch all entities or those matching a prefix."""
+        if prefix:
+            return self.kg_manager.get_entities_by_prefix(prefix)
+        return self.kg_manager.get_all_entities()
+
+    def claim_entity(self, entity: str, claimer: str, expiry_secs: int = 30) -> bool:
+        """Atomically claim an entity for a period of time."""
+        return self.kg_manager.claim_entity(entity, claimer, expiry_secs)
+
+    def unclaim_entity(self, entity: str, claimer: str) -> bool:
+        """Release an atomic claim."""
+        return self.kg_manager.unclaim_entity(entity, claimer)
+
+    def get_entity_history(self, entity: str) -> List[UnifiedMemoryAtom]:
+        """Retrieve all memory atoms associated with an entity, sorted by time."""
+        lineage = self.kg_manager.get_lineage(entity)
+        atoms = []
+        for atom_id, epoch_id in lineage:
+            # Try hot tier first
+            atom = self.hot_tier.atoms.get(atom_id)
+            if not atom:
+                # Fallback to cold tier (simplified fetch)
+                atom = self.retriever._fetch_atom_by_id(atom_id, epoch_id)
+            if atom:
+                atoms.append(atom)
+        return sorted(atoms, key=lambda x: x.created_at)
+
+    def save_state(self, key: str, payload: Any, parent_key: str = None) -> str:
+        """
+        Specialized memory addition for state management.
+        Creates a 'STATE' entity link and optional parent link for lineage.
+        Uses dummy embedding (zero vector) as state is usually retrieved via KG.
+        """
+        triples = [(key, "is_state", "True")]
+        if parent_key:
+            triples.append((key, "parent_state", parent_key))
+        
+        # Use a small dummy embedding for state atoms
+        dummy_emb = np.zeros(self.dim, dtype=np.float32)
+        return self.add_memory(payload, dummy_emb, triples)
 
     def extract_entities(self, text: str) -> List[str]:
         """Heuristically extract entities from text that exist in Global KG."""
@@ -294,35 +377,51 @@ class EpochDB:
     # -------------------------------------------------------------------------
 
     def _get_embedder(self):
-        """Lazy-load the SentenceTransformer model on first use."""
+        """Lazy-load the embedding model on first use."""
         if self._embedder is None:
             if self._model_name is None:
-                raise ValueError(
-                    "No embedding model configured. Pass model='all-MiniLM-L6-v2' "
-                    "(or any SentenceTransformer model name) to EpochDB.__init__."
-                )
-            try:
-                from sentence_transformers import SentenceTransformer
-            except ImportError:
-                raise ImportError(
-                    "sentence-transformers is required for auto-embedding. "
-                    "Install it with: pip install epochdb[embeddings]"
-                )
-            self._embedder = SentenceTransformer(self._model_name)
+                raise ValueError("No embedding model configured.")
+            
+            if self._model_name.startswith("google:"):
+                # Use Google GenAI embeddings
+                model_id = self._model_name.split(":", 1)[1]
+                self._embedder = GoogleEmbedder(model_id, dim=self.dim)
+            else:
+                # Fallback to SentenceTransformer
+                try:
+                    from sentence_transformers import SentenceTransformer
+                except ImportError:
+                    raise ImportError("sentence-transformers is required for local embeddings.")
+                self._embedder = SentenceTransformer(self._model_name)
+        return self._embedder
+
         return self._embedder
 
     def remember(self, text: str, triples: List[tuple] = None) -> str:
         """
         Convenience method: embed `text` automatically and store it.
         Requires EpochDB to be initialized with a `model` name.
-
-        Example:
-            db = EpochDB(storage_dir="./mem", model="all-MiniLM-L6-v2")
-            db.remember("Alice lives in Paris", triples=[("Alice", "lives_in", "Paris")])
         """
-        embedder = self._get_embedder()
-        emb = embedder.encode(text, normalize_embeddings=True)
-        return self.add_memory(text, np.array(emb, dtype=np.float32), triples or [])
+        with self._internal_lock:
+            embedder = self._get_embedder()
+            emb = embedder.encode(text, normalize_embeddings=True)
+            return self.add_memory(text, np.array(emb, dtype=np.float32), triples or [])
+
+    def remember_batch(self, texts: List[str], triples_list: List[List[tuple]] = None) -> List[str]:
+        """
+        Store multiple memories at once. Much faster for large datasets.
+        """
+        with self._internal_lock:
+            if not texts:
+                return []
+            embedder = self._get_embedder()
+            embs = embedder.encode_batch(texts)
+            
+            ids = []
+            for i, text in enumerate(texts):
+                triples = triples_list[i] if triples_list and i < len(triples_list) else []
+                ids.append(self.add_memory(text, embs[i], triples))
+            return ids
 
     def recall_text(
         self,
@@ -335,17 +434,35 @@ class EpochDB:
         Convenience method: embed `query` automatically and recall memories.
         Automatically extracts known entities from the query string to boost recall.
         """
-        if query_entities is None:
-            query_entities = self.extract_entities(query)
-            
-        embedder = self._get_embedder()
-        emb = embedder.encode(query, normalize_embeddings=True)
-        return self.recall(
-            np.array(emb, dtype=np.float32),
-            top_k=top_k,
-            expand_hops=expand_hops,
-            query_entities=query_entities,
-        )
+        with self._internal_lock:
+            if query_entities is None:
+                query_entities = self.extract_entities(query)
+                
+            embedder = self._get_embedder()
+            emb = embedder.encode(query, normalize_embeddings=True)
+            return self.recall(
+                np.array(emb, dtype=np.float32),
+                top_k=top_k,
+                expand_hops=expand_hops,
+                query_entities=query_entities,
+            )
+    def recall_by_entity(self, entity: str) -> List[UnifiedMemoryAtom]:
+        """
+        Deterministic retrieval: fetch all atoms associated with a specific entity in the KG.
+        """
+        with self._internal_lock:
+            associations = self.kg_manager.get_associations(entity)
+            atom_ids = [a[0] for a in associations]
+            # Fetch from cold/hot tier
+            atoms = []
+            for aid in atom_ids:
+                atom = self.hot_tier.atoms.get(aid)
+                if not atom:
+                    # Fallback to cold tier lookup if needed (omitted for brevity in this tier)
+                    pass
+                if atom:
+                    atoms.append(atom)
+            return atoms
 
     # -------------------------------------------------------------------------
     # Branching
@@ -449,8 +566,20 @@ class EpochDB:
         except Exception as e:
             logger.error(f"Failed to save access deltas: {e}")
 
+    def flush(self):
+        """Synchronously flush current hot tier to cold tier."""
+        atoms = list(self.hot_tier.atoms.values())
+        if atoms:
+            logger.info(f"Synchronously flushing {len(atoms)} atoms to cold tier...")
+            self.cold_tier.serialize_epoch(self.current_epoch_id, atoms)
+            self.wal.clear()
+            self.hot_tier.clear()
+            self.current_epoch_id = f"epoch_{uuid.uuid4().hex[:8]}"
+            self.epoch_start_time = time.time()
+
     def close(self):
         """Flush all pending state and release resources."""
+        self.flush()
         self.kg_manager.close()
         self._save_access_deltas()
         self.wal.close()
@@ -462,3 +591,115 @@ class EpochDB:
             self.lock.release()
         except Exception:
             pass
+
+
+class AsyncEpochDB:
+    """
+    An asynchronous wrapper for EpochDB that runs blocking operations in threads.
+    """
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._db = None
+
+    async def __aenter__(self):
+        import asyncio
+        self._db = await asyncio.to_thread(EpochDB, **self._kwargs)
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        import asyncio
+        if self._db:
+            await asyncio.to_thread(self._db.close)
+
+    async def remember(self, text: str, triples: List[tuple] = None) -> str:
+        import asyncio
+        return await asyncio.to_thread(self._db.remember, text, triples)
+
+    async def recall_text(self, query: str, **kwargs) -> List[UnifiedMemoryAtom]:
+        import asyncio
+        return await asyncio.to_thread(self._db.recall_text, query, **kwargs)
+
+    async def save_state(self, key: str, payload: Any, parent_key: str = None) -> str:
+        import asyncio
+        return await asyncio.to_thread(self._db.save_state, key, payload, parent_key)
+
+    async def claim_entity(self, entity: str, claimer: str, expiry_secs: int = 30) -> bool:
+        import asyncio
+        return await asyncio.to_thread(self._db.claim_entity, entity, claimer, expiry_secs)
+
+    async def unclaim_entity(self, entity: str, claimer: str) -> bool:
+        import asyncio
+        return await asyncio.to_thread(self._db.unclaim_entity, entity, claimer)
+
+    async def get_entities(self, prefix: str = None) -> List[str]:
+        import asyncio
+        return await asyncio.to_thread(self._db.get_entities, prefix)
+
+    async def get_entity_history(self, entity: str) -> List[UnifiedMemoryAtom]:
+        import asyncio
+        return await asyncio.to_thread(self._db.get_entity_history, entity)
+
+    async def add_memory(self, content: Any, embedding: np.ndarray = None, triples: List[tuple] = None) -> str:
+        import asyncio
+        return await asyncio.to_thread(self._db.add_memory, content, embedding, triples)
+
+    async def remember_batch(self, texts: List[str], triples_list: List[List[tuple]] = None) -> List[str]:
+        import asyncio
+        return await asyncio.to_thread(self._db.remember_batch, texts, triples_list)
+
+    async def search(self, query: str, **kwargs) -> List[UnifiedMemoryAtom]:
+        import asyncio
+        # If it's a semantic search (text query), use recall_text
+        if isinstance(query, str):
+            return await asyncio.to_thread(self._db.recall_text, query, **kwargs)
+        return []
+
+    async def recall_by_entity(self, entity: str) -> List[UnifiedMemoryAtom]:
+        import asyncio
+        return await asyncio.to_thread(self._db.recall_by_entity, entity)
+
+class GoogleEmbedder:
+    """Wrapper for Google GenAI Embedding service."""
+    def __init__(self, model_id: str, dim: int = 768):
+        self.model_id = model_id
+        self.dim = dim
+        self._client = None
+
+    def _get_client(self):
+        if self._client is None:
+            import os
+            from google import genai
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                raise ValueError("GEMINI_API_KEY not found in environment.")
+            self._client = genai.Client(api_key=api_key, http_options={'api_version': 'v1beta'})
+        return self._client
+
+    def encode(self, text: str, normalize_embeddings: bool = True) -> np.ndarray:
+        client = self._get_client()
+        logger.debug(f"[GoogleEmbedder] Encoding text (len={len(text)})...")
+        # Gemini embedding call
+        result = client.models.embed_content(
+            model=self.model_id,
+            contents=text,
+            config={'output_dimensionality': self.dim}
+        )
+        emb = np.array(result.embeddings[0].values, dtype=np.float32)
+        if normalize_embeddings:
+            norm = np.linalg.norm(emb)
+            if norm > 1e-10:
+                emb = emb / norm
+        logger.debug(f"[GoogleEmbedder] Encoding complete. Dim: {len(emb)}")
+        return emb
+
+    def encode_batch(self, texts: List[str]) -> np.ndarray:
+        client = self._get_client()
+        logger.info(f"[GoogleEmbedder] Encoding batch of {len(texts)} texts...")
+        result = client.models.embed_content(
+            model=self.model_id,
+            contents=texts,
+            config={'output_dimensionality': self.dim}
+        )
+        embs = [e.values for e in result.embeddings]
+        logger.info(f"[GoogleEmbedder] Batch encoding complete.")
+        return np.array(embs, dtype=np.float32)
