@@ -1,7 +1,7 @@
 import hnswlib
 import numpy as np
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional
 from .atom import UnifiedMemoryAtom, PayloadType
 from .quantitative_index import QuantitativeIndexManager
 
@@ -19,7 +19,6 @@ class HotTier:
     """
 
     def __init__(self, dim: int, max_elements: int = 10_000, storage_dir: Optional[str] = None):
-        from typing import Optional
         self.dim = dim
         self.max_elements = max_elements
         self.storage_dir = storage_dir

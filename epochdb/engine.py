@@ -4,11 +4,11 @@ import uuid
 import json
 import logging
 import threading
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
 
 import numpy as np
 
-from .atom import UnifiedMemoryAtom, PayloadType, ScalarPayload, SeriesPayload, ConstraintPayload
+from .atom import UnifiedMemoryAtom, PayloadType, ScalarPayload, SeriesPayload, ConstraintPayload, SeriesPoint
 from .hot_tier import HotTier
 from .cold_tier import ColdTier
 from .transaction import WriteAheadLog, FileLock, MultiIndexTransaction
@@ -169,6 +169,7 @@ class EpochDB:
         payload: Any,
         embedding: np.ndarray,
         triples: List[tuple] = None,
+        atom_id: Optional[str] = None
     ) -> str:
         """Store a new memory atom with its embedding and optional KG triples."""
         if triples is None:
@@ -196,6 +197,7 @@ class EpochDB:
             ptype = PayloadType.CONSTRAINT
 
         atom = UnifiedMemoryAtom(
+            id=atom_id if atom_id else str(uuid.uuid4()),
             payload=payload,
             payload_type=ptype,
             embedding=embedding,
@@ -422,6 +424,24 @@ class EpochDB:
                 triples = triples_list[i] if triples_list and i < len(triples_list) else []
                 ids.append(self.add_memory(text, embs[i], triples))
             return ids
+
+    def forget(self, atom_id: str):
+        """
+        Permanently remove an atom from the Truth Substrate.
+        Logs a DELETE operation to the WAL to ensure persistence.
+        """
+        with self._internal_lock:
+            # 1. Remove from Hot Tier if present
+            if atom_id in self.hot_tier.atoms:
+                atom = self.hot_tier.atoms.pop(atom_id)
+                # 2. Remove from KG associations
+                for s, p, o in atom.triples:
+                    # Note: Simplified KG removal (doesn't handle Parquet atoms yet)
+                    pass
+            
+            # 3. Log deletion to WAL
+            self.wal.append("DELETE", {"id": atom_id})
+            logger.info(f"Atom {atom_id} forgotten.")
 
     def recall_text(
         self,
@@ -660,7 +680,7 @@ class AsyncEpochDB:
 
 class GoogleEmbedder:
     """Wrapper for Google GenAI Embedding service."""
-    def __init__(self, model_id: str, dim: int = 768):
+    def __init__(self, model_id: str, dim: int = 3072):
         self.model_id = model_id
         self.dim = dim
         self._client = None
@@ -679,12 +699,13 @@ class GoogleEmbedder:
         client = self._get_client()
         logger.debug(f"[GoogleEmbedder] Encoding text (len={len(text)})...")
         # Gemini embedding call
+        model_path = self.model_id if "/" in self.model_id else f"models/{self.model_id}"
         result = client.models.embed_content(
-            model=self.model_id,
+            model=model_path,
             contents=text,
             config={'output_dimensionality': self.dim}
         )
-        emb = np.array(result.embeddings[0].values, dtype=np.float32)
+        return np.array(result.embeddings[0].values, dtype=np.float32)
         if normalize_embeddings:
             norm = np.linalg.norm(emb)
             if norm > 1e-10:

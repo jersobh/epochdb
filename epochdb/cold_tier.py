@@ -6,7 +6,7 @@ import pyarrow.dataset as ds
 import duckdb
 import numpy as np
 import hnswlib
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any, Tuple
 from collections import OrderedDict
 from .atom import UnifiedMemoryAtom, PayloadType, ScalarPayload, SeriesPayload, SeriesPoint, ConstraintPayload
 import logging
