@@ -1,12 +1,13 @@
 import numpy as np
-from typing import List, Dict, Set, Optional, Any
-from .atom import UnifiedMemoryAtom, PayloadType
+from typing import List, Dict, Set, Optional, Any, Tuple
+from .atom import UnifiedMemoryAtom, PayloadType, SeriesPoint
 from .hot_tier import HotTier
 from .cold_tier import ColdTier
 from .kg_manager import KGManager
 from .units import UnitRegistry
 from .quantitative_index import ScalarIndex
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -205,19 +206,24 @@ class RetrievalManager:
                 for ep_id, a_ids in epoch_to_atom_ids.items():
                     atoms = self.cold_tier.load_atom_metadata(ep_id, a_ids)
                     for a in atoms:
-                        sim = np.dot(a.embedding, query_emb) / (
-                            np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
-                        )
-                        candidates[a.id] = (a, float(sim))
+                        sim = 0.0
+                        if query_emb.any() and a.embedding.any():
+                            sim = np.dot(a.embedding, query_emb) / (
+                                np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
+                            )
+                        # Entity match gets a baseline boost to ensure retrieval
+                        candidates[a.id] = (a, float(sim) + 0.5)
                 
                 # Also check Hot Tier
                 for a_id, _ in associations:
                     if a_id in self.hot_tier.atoms and a_id not in candidates:
                         a = self.hot_tier.atoms[a_id]
-                        sim = np.dot(a.embedding, query_emb) / (
-                            np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
-                        )
-                        candidates[a.id] = (a, float(sim))
+                        sim = 0.0
+                        if query_emb.any() and a.embedding.any():
+                            sim = np.dot(a.embedding, query_emb) / (
+                                np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
+                            )
+                        candidates[a.id] = (a, float(sim) + 0.5)
 
         # --- Keyword-based Entity Extraction (Auto-Expansion) ---
         # If no explicit entities are passed, we scan the query embedding surface 
@@ -231,7 +237,6 @@ class RetrievalManager:
         # --- 1b. Semantic Hook: Cold Tier (Fast Indexed Search) ---
         epochs = self.cold_tier.get_all_epochs()
         for epoch in epochs:
-            # We fetch a larger pool to ensure corrections are captured for RRF fusion.
             cold_hits = self.cold_tier.search_epoch(epoch, query_emb, top_k=top_k * 10)
             for atom in cold_hits:
                 if len(atom.embedding) != len(query_emb):
@@ -241,11 +246,6 @@ class RetrievalManager:
                     np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10
                 )
                 atom.access_count += self._access_deltas.get(atom.id, 0)
-                
-                # Apply payload type filter early to reduce RRF noise
-                if payload_type and atom.payload_type != payload_type:
-                    continue
-                
                 candidates[atom.id] = (atom, float(sim))
 
         # --- 2. Relational Expansion via Global KG ---

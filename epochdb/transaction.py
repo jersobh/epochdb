@@ -100,6 +100,10 @@ class WriteAheadLog:
         self._file.flush()
         os.fsync(self._file.fileno())
 
+    def log_delete(self, atom_id: str):
+        """Log a persistent delete operation."""
+        self.append("DELETE", {"id": atom_id})
+
     def replay(self) -> list:
         """
         Read uncommitted ADD records from the WAL for crash recovery.
