@@ -98,6 +98,7 @@ class EpochDB:
 
         # --- Persistent Access Deltas (cold-tier saliency across restarts) ---
         self._access_deltas_file = os.path.join(self.storage_dir, "access_deltas.json")
+
         if os.path.exists(self._access_deltas_file):
             try:
                 with open(self._access_deltas_file, "r") as f:
@@ -112,6 +113,10 @@ class EpochDB:
 
         # --- WAL Replay (Crash Recovery) ---
         self._replay_wal()
+
+    def get_total_atoms(self) -> int:
+        """Returns the total number of atoms across both hot and cold tiers."""
+        return len(self.hot_tier.atoms) + self.cold_tier.get_total_atoms()
 
     # -------------------------------------------------------------------------
     # Context Manager Support
@@ -346,18 +351,38 @@ class EpochDB:
         clean_text = text_l.replace("'s", "").replace("?", "").replace(".", "").replace(",", "")
         words = {w.strip() for w in clean_text.split() if len(w) > 2}
 
-        # Expanded blacklist – generic conversational pronouns/determiners
+        # Expanded blacklist – generic conversational pronouns/determiners (EN + PT)
         blacklist = {"user", "agent", "the", "this", "that", "it", "i", "my", "me",
-                     "they", "their", "who", "what", "where", "when", "how"}
+                     "they", "their", "who", "what", "where", "when", "how",
+                     "o", "a", "os", "as", "eu", "meu", "minha", "eles", "elas",
+                     "quem", "que", "onde", "quando", "como", "esta", "essa", "aquela"}
 
-        # --- Pass 1: Subjects/Objects must literally appear in the query ---
+        # --- Pass 1: Subjects/Objects must appear in the query ---
         for ent in self.kg_manager.get_all_entities():
-            if ent.lower() in blacklist:
-                continue
             ent_l = ent.lower()
-            # Only substring match — no fuzzy token matching (which was the bug)
+            if ent_l in blacklist:
+                continue
+            
+            # 1. Exact Substring Match
             if ent_l in clean_text:
                 found.add(ent)
+                continue
+
+            # 2. Acronym Match: if entity name contains "(XYZ)", match "xyz" in query
+            if "(" in ent_l and ")" in ent_l:
+                acronym = ent_l[ent_l.find("(")+1:ent_l.find(")")]
+                if len(acronym) >= 2 and acronym in words:
+                    found.add(ent)
+                    continue
+            
+            # 3. Technical Phrase Match: for multi-word entities, match if significant parts are in query
+            if " " in ent_l:
+                ent_parts = [p for p in ent_l.split() if len(p) > 3 and p not in blacklist]
+                if ent_parts:
+                    matches = sum(1 for p in ent_parts if p in clean_text)
+                    if matches / len(ent_parts) >= 0.5:
+                        found.add(ent)
+                        continue
 
         # --- Pass 2: Predicates — substring + cautious prefix fuzzy ---
         for pred in self.predicates:
@@ -454,14 +479,18 @@ class EpochDB:
         Convenience method: embed `query` automatically and recall memories.
         Automatically extracts known entities from the query string to boost recall.
         """
+        # OPTIMIZATION: Extract entities and embed OUTSIDE the lock
+        # to allow multiple queries (e.g. Multi-Query Expansion) to run in parallel.
+        if query_entities is None:
+            query_entities = self.extract_entities(query)
+            
+        embedder = self._get_embedder()
+        emb_list = embedder.encode(query, normalize_embeddings=True)
+        emb = np.array(emb_list, dtype=np.float32)
+
         with self._internal_lock:
-            if query_entities is None:
-                query_entities = self.extract_entities(query)
-                
-            embedder = self._get_embedder()
-            emb = embedder.encode(query, normalize_embeddings=True)
             return self.recall(
-                np.array(emb, dtype=np.float32),
+                emb,
                 top_k=top_k,
                 expand_hops=expand_hops,
                 query_entities=query_entities,
@@ -478,8 +507,11 @@ class EpochDB:
             for aid in atom_ids:
                 atom = self.hot_tier.atoms.get(aid)
                 if not atom:
-                    # Fallback to cold tier lookup if needed (omitted for brevity in this tier)
-                    pass
+                    # Look up in cold tier by iterating associations for epoch
+                    for a_id, ep_id in associations:
+                        if a_id == aid:
+                            atom = self.retriever._fetch_atom_by_id(a_id, ep_id)
+                            break
                 if atom:
                     atoms.append(atom)
             return atoms

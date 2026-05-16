@@ -234,19 +234,31 @@ class RetrievalManager:
             # an unpopulated set. For now, we rely on the expansion set below.
             pass
 
-        # --- 1b. Semantic Hook: Cold Tier (Fast Indexed Search) ---
+        # --- 1b. Semantic Hook: Cold Tier (Parallel Indexed Search) ---
         epochs = self.cold_tier.get_all_epochs()
-        for epoch in epochs:
-            cold_hits = self.cold_tier.search_epoch(epoch, query_emb, top_k=top_k * 10)
-            for atom in cold_hits:
-                if len(atom.embedding) != len(query_emb):
-                    continue
-                    
-                sim = np.dot(atom.embedding, query_emb) / (
-                    np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10
-                )
-                atom.access_count += self._access_deltas.get(atom.id, 0)
-                candidates[atom.id] = (atom, float(sim))
+        if epochs:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(epochs))) as executor:
+                # Launch all epoch searches in parallel
+                future_to_epoch = {
+                    executor.submit(self.cold_tier.search_epoch, epoch, query_emb, top_k * 10): epoch 
+                    for epoch in epochs
+                }
+                
+                for future in concurrent.futures.as_completed(future_to_epoch):
+                    try:
+                        cold_hits = future.result()
+                        for atom in cold_hits:
+                            if len(atom.embedding) != len(query_emb):
+                                continue
+                                
+                            sim = np.dot(atom.embedding, query_emb) / (
+                                np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10
+                            )
+                            atom.access_count += self._access_deltas.get(atom.id, 0)
+                            candidates[atom.id] = (atom, float(sim))
+                    except Exception as e:
+                        logger.error(f"Search failed for epoch {future_to_epoch[future]}: {e}")
 
         # --- 2. Relational Expansion via Global KG ---
         # This doubles as our Entity Extraction: if a candidate atom mentions an entity 
@@ -281,7 +293,17 @@ class RetrievalManager:
                                     query_entities.add(ent)
                             
                             for epoch_id, atom_ids in epoch_to_atom_ids.items():
-                                n_atoms = self.cold_tier.load_atom_metadata(epoch_id, atom_ids)
+                                n_atoms = []
+                                missing_atom_ids = []
+                                for aid in atom_ids:
+                                    if aid in self.hot_tier.atoms:
+                                        n_atoms.append(self.hot_tier.atoms[aid])
+                                    else:
+                                        missing_atom_ids.append(aid)
+                                
+                                if missing_atom_ids:
+                                    n_atoms.extend(self.cold_tier.load_atom_metadata(epoch_id, missing_atom_ids))
+
                                 for n_atom in n_atoms:
                                     if len(n_atom.embedding) == len(query_emb):
                                          sim = np.dot(n_atom.embedding, query_emb) / (
@@ -400,35 +422,28 @@ class RetrievalManager:
 
         # 3. Discrete Topic Lock (Consolidated Saliency)
         def get_topic_boost(atom: UnifiedMemoryAtom) -> float:
-            atom_elements = set()
-            for s, p, o in atom.triples:
-                atom_elements.add(str(s).lower())
-                atom_elements.add(str(o).lower())
-                atom_elements.add(p.lower())
-            
             boost = 0.0
             # Use original_query_entities — NOT the expansion-contaminated query_entities
             for qe in original_query_entities:
                 qe_l = qe.lower()
-                is_broad = len(self.kg_manager.get_associations(qe)) > 5
+                is_broad = len(self.kg_manager.get_associations(qe)) > 10 # Increased threshold for 'broad'
                 
-                # We reward matches on THE PRECISE INTENT (The Predicate)
-                # or Narrow Entities (Subject/Object).
                 for s, p, o in atom.triples:
                     p_l = p.lower()
-                    # 1. Exact Predicate Match (Intent Alignment)
+                    # 1. Exact Predicate Match (Intent Alignment) - High Signal
                     if qe_l == p_l:
-                        boost = max(boost, 20.0) # Nuclear Boost
+                        boost += 15.0
                         break
                     
-                    # 2. Fuzzy Predicate/Entity Match (Prefix/Narrow)
-                    qe_root = qe_l[:4]
+                    # 2. Narrow Entity Match (Subject/Object)
                     if qe_l in (str(s).lower(), str(o).lower()) and not is_broad:
-                        boost = max(boost, 20.0)
+                        boost += 10.0
                         break
                     
-                    if qe_l in p_l or (len(qe_root) >= 4 and qe_root in p_l):
-                        boost = max(boost, 20.0)
+                    # 3. Fuzzy/Partial Match - Low Signal
+                    qe_root = qe_l[:4]
+                    if len(qe_root) >= 4 and qe_root in p_l:
+                        boost += 5.0
                         break
             
             return boost
@@ -459,19 +474,23 @@ class RetrievalManager:
 
         # Pre-calculate scores to detect 'Signal' presence
         scored_results = []
-        has_signal = False
         for atom, sim in unique_results:
             score = multi_rrf_score(atom.id, atom)
-            if score >= 20.0:
-                has_signal = True
             scored_results.append((atom, score))
         
-        # Signal-to-Noise Filter: if Signal exists, demote Noise aggressively
-        if has_signal:
+        # Dynamic Signal-to-Noise Filter: demote background noise ONLY when a clear signal is found.
+        if scored_results:
+            max_score = max(s[1] for s in scored_results)
+            # Signal threshold: requires at least one strong boost or multiple weak ones
+            threshold = max(15.0, max_score * 0.8)
+            
             final_scored = []
+            has_strong_signal = max_score >= threshold
+            
             for atom, score in scored_results:
-                if score < 20.0:
-                    score *= 0.0000001
+                if has_strong_signal and score < threshold:
+                    # Soft demotion (0.1x) to keep context available but deprioritized
+                    score *= 0.1
                 final_scored.append((atom, score))
             scored_results = final_scored
 
