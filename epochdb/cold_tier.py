@@ -3,12 +3,12 @@ import json
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.dataset as ds
-import duckdb
 import numpy as np
 import hnswlib
 from typing import List, Optional, Dict, Any, Tuple
 from collections import OrderedDict
 from .atom import UnifiedMemoryAtom, PayloadType, ScalarPayload, SeriesPayload, SeriesPoint, ConstraintPayload
+from .units import UnitRegistry
 import logging
 
 logger = logging.getLogger(__name__)
@@ -194,33 +194,42 @@ class ColdTier:
                 actual_k = min(top_k, num_elements)
                 labels, distances = index.knn_query(query_emb, k=actual_k)
                 
-                # Load only the specific rows from Parquet
-                table = pq.read_table(file_path)
+                # OPTIMIZATION: Use Parquet dataset to load only specific rows
+                import pyarrow.dataset as ds
+                import pyarrow as pa
+                dataset = ds.dataset(file_path, format="parquet")
                 indices = pa.array(labels[0].tolist(), type=pa.int64())
-                rows_table = table.take(indices)
+                rows_table = dataset.take(indices)
                 rows = rows_table.to_pylist()
                 
                 atoms = []
-                for i, row in enumerate(rows):
+                for row in rows:
                     atoms.append(self._row_to_atom(row))
                 return atoms
             except Exception as e:
                 logger.error(f"HNSW query failed for {epoch_id}, falling back to linear: {e}")
 
-        # Case 2: Linear Fallback (Legacy or Failed)
-        atoms = self.load_epoch(epoch_id)
-        if not atoms:
-            return []
-
-        scored = []
-        for atom in atoms:
-            sim = 1.0 - np.dot(query_emb, atom.embedding) / (
-                np.linalg.norm(query_emb) * np.linalg.norm(atom.embedding) + 1e-9
-            )
-            scored.append((sim, atom))
+        # Case 2: Vectorized Linear Fallback (Fast Matrix Ops)
+        table = pq.read_table(file_path, columns=["embedding", "embedding_max"])
         
-        scored.sort(key=lambda x: x[0], reverse=False)
-        return [a for _, a in scored[:top_k]]
+        # Matrix-based similarity calculation
+        # PyArrow fixed-size list to numpy is fast
+        embeddings = np.array(table["embedding"].to_pylist(), dtype=np.float32)
+        if "embedding_max" in table.column_names:
+            max_vals = np.array(table["embedding_max"].to_pylist(), dtype=np.float32)[:, np.newaxis]
+            embeddings = (embeddings / 127.0) * max_vals
+        
+        # Normalize vectors for cosine similarity
+        norm_query = np.linalg.norm(query_emb) + 1e-9
+        norm_embs = np.linalg.norm(embeddings, axis=1) + 1e-9
+        
+        similarities = np.dot(embeddings, query_emb) / (norm_embs * norm_query)
+        
+        # Get top K indices
+        top_indices = np.argsort(similarities)[-top_k:][::-1]
+        
+        rows = table.take(top_indices).to_pylist()
+        return [self._row_to_atom(row) for row in rows]
 
     def load_atom_metadata(self, epoch_id: str, atom_ids: List[str]) -> List[UnifiedMemoryAtom]:
         """Efficiently loads specific atoms by ID from an epoch."""
@@ -304,6 +313,21 @@ class ColdTier:
             epoch_id=row["epoch_id"],
         )
 
+    def get_total_atoms(self) -> int:
+        """Efficiently counts all atoms in the cold tier using Parquet metadata."""
+        count = 0
+        if not os.path.exists(self.storage_dir):
+            return 0
+        for f in os.listdir(self.storage_dir):
+            if f.endswith(".parquet"):
+                try:
+                    # read_metadata only reads the footer, very fast.
+                    metadata = pq.read_metadata(os.path.join(self.storage_dir, f))
+                    count += metadata.num_rows
+                except Exception:
+                    continue
+        return count
+
     def get_all_epochs(self) -> List[str]:
         epochs = []
         for f in os.listdir(self.storage_dir):
@@ -313,56 +337,124 @@ class ColdTier:
         return epochs
 
 class ColdTierAnalytics:
-    """Analytical engine over cold tier using DuckDB."""
+    """Analytical engine over cold tier using PyArrow and UnitRegistry."""
     def __init__(self, storage_dir: str):
         self.storage_dir = storage_dir
-        self.con = duckdb.connect()
-        # Register the parquet files as a view
-        self.con.execute(f"CREATE OR REPLACE VIEW atoms AS SELECT * FROM read_parquet('{os.path.join(storage_dir, '*.parquet')}')")
+        self.unit_registry = UnitRegistry()
+
+    def _get_dataset_table(self, field: str, entity: str) -> Optional[pa.Table]:
+        """Scans parquet files and filters by triples (LIKE-ish match)."""
+        if not os.path.exists(self.storage_dir):
+            return None
+        
+        try:
+            # Important: Filter for .parquet files specifically, otherwise ds.dataset 
+            # tries to read metadata.json and other control files.
+            parquet_files = [
+                os.path.join(self.storage_dir, f) 
+                for f in os.listdir(self.storage_dir) 
+                if f.endswith(".parquet")
+            ]
+            if not parquet_files:
+                return None
+                
+            dataset = ds.dataset(parquet_files, format="parquet")
+            # We filter for records that have a scalar value and match the entity/field in triples
+            scanner = dataset.scanner(columns=[
+                "id", "scalar_value", "scalar_unit", "triples", "created_at"
+            ])
+            table = scanner.to_table()
+            
+            import pyarrow.compute as pc
+            # Basic substring filtering for triples JSON
+            mask = pc.and_(
+                pc.is_valid(table["scalar_value"]),
+                pc.and_(
+                    pc.match_substring(table["triples"], entity),
+                    pc.match_substring(table["triples"], field)
+                )
+            )
+            return table.filter(mask)
+        except Exception as e:
+            logger.error(f"Failed to scan cold tier for analytics: {e}")
+            return None
 
     def query_trend(self, field: str, entity: str) -> Dict[str, Any]:
-        """Detect trends (slope, min, max, std) for a scalar field."""
-        query = f"""
-        SELECT 
-            avg(scalar_value) as mean_val,
-            min(scalar_value) as min_val,
-            max(scalar_value) as max_val,
-            regr_slope(scalar_value, created_at) as slope,
-            stddev(scalar_value) as std_val
-        FROM atoms
-        WHERE scalar_unit IS NOT NULL 
-        AND triples LIKE '%{entity}%' 
-        AND triples LIKE '%{field}%'
-        """
-        res = self.con.execute(query).fetchone()
-        if not res or res[0] is None: return {}
+        """Detect trends (slope, min, max, std) for a scalar field with unit normalization."""
+        table = self._get_dataset_table(field, entity)
+        if table is None or len(table) == 0:
+            return {}
+
+        # 1. Normalize Units
+        # We pick the first record's unit as the base for this trend, or use a schema if we had one.
+        # For simplicity, we'll normalize everything to the unit of the first record found.
+        base_unit = table["scalar_unit"][0].as_py()
+        
+        raw_vals = table["scalar_value"].to_numpy()
+        raw_units = table["scalar_unit"].to_pylist()
+        times = table["created_at"].to_numpy()
+        
+        normalized_vals = []
+        for v, u in zip(raw_vals, raw_units):
+            if u == base_unit:
+                normalized_vals.append(v)
+            else:
+                normalized_vals.append(self.unit_registry.convert(v, u, base_unit))
+        
+        vals = np.array(normalized_vals)
+        
+        # 2. Compute Stats
+        mean_val = np.mean(vals)
+        min_val = np.min(vals)
+        max_val = np.max(vals)
+        std_val = np.std(vals)
+        
+        # regr_slope (y = vals, x = times)
+        if len(vals) > 1:
+            try:
+                slope, _ = np.polyfit(times, vals, 1)
+            except:
+                slope = 0.0
+        else:
+            slope = 0.0
+            
         return {
-            "mean": res[0],
-            "min": res[1],
-            "max": res[2],
-            "slope": res[3],
-            "std": res[4] if res[4] is not None else 0.0
+            "mean": float(mean_val),
+            "min": float(min_val),
+            "max": float(max_val),
+            "slope": float(slope),
+            "std": float(std_val),
+            "unit": base_unit
         }
 
     def detect_anomalies(self, field: str, entity: str, sigma: float = 3.0) -> List[Dict[str, Any]]:
-        """Detect anomalies in a scalar field using standard deviation."""
-        stats_query = f"""
-        SELECT avg(scalar_value), stddev(scalar_value) 
-        FROM atoms 
-        WHERE triples LIKE '%{entity}%' AND triples LIKE '%{field}%'
-        """
-        stats = self.con.execute(stats_query).fetchone()
-        if not stats or stats[0] is None: return []
+        """Detect anomalies in a scalar field using normalized standard deviation."""
+        trend = self.query_trend(field, entity)
+        if not trend: return []
         
-        avg, std = stats
-        threshold_low = avg - sigma * (std or 0)
-        threshold_high = avg + sigma * (std or 0)
+        avg = trend["mean"]
+        std = trend["std"]
+        base_unit = trend["unit"]
         
-        anomaly_query = f"""
-        SELECT id, scalar_value, created_at
-        FROM atoms
-        WHERE triples LIKE '%{entity}%' AND triples LIKE '%{field}%'
-        AND (scalar_value < {threshold_low} OR scalar_value > {threshold_high})
-        """
-        anomalies = self.con.execute(anomaly_query).fetchall()
-        return [{"id": r[0], "value": r[1], "timestamp": r[2]} for r in anomalies]
+        threshold_low = avg - sigma * std
+        threshold_high = avg + sigma * std
+        
+        # Scan again to find specific anomalies (or we could have kept the table)
+        table = self._get_dataset_table(field, entity)
+        if not table: return []
+        
+        anomalies = []
+        for row in table.to_pylist():
+            val = row["scalar_value"]
+            unit = row["scalar_unit"]
+            if unit != base_unit:
+                val = self.unit_registry.convert(val, unit, base_unit)
+            
+            if val < threshold_low or val > threshold_high:
+                anomalies.append({
+                    "id": row["id"],
+                    "value": val,
+                    "timestamp": row["created_at"],
+                    "unit": base_unit
+                })
+        return anomalies

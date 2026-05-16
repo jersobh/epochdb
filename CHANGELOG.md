@@ -2,12 +2,15 @@
 
 All notable changes to EpochDB will be documented in this file.
 
-## [0.6.0] - 2026-05-07
+## [0.6.0] - 2026-05-16
 ### Added
+- **Analytical Cold Tier**: Fully eliminated DuckDB dependency, replacing the cold tier analytical engine with a native PyArrow-based Scalar Handler for high-performance cross-epoch scanning and numeric aggregation.
+- **Parallel Retrieval**: Implemented `ThreadPoolExecutor` in `RetrievalManager` for concurrent historical epoch scanning, significantly reducing latency for multi-epoch queries.
+- **Dynamic Signal-to-Noise**: Replaced hardcoded RRF thresholds with a dynamic filtering mechanism and "soft demotion" (0.1x) to preserve context while prioritizing strong signals.
+- **Improved Topic Boosting**: Transitioned to cumulative boosting for intent alignment (+15.0) and narrow entity matches (+10.0), improving retrieval precision for complex queries.
 - **Quantitative Data Support**: Native support for Scalars, Time-Series, and Constraints.
 - **Advanced Indexing**: Integrated B-trees for scalar range queries and R-trees for temporal series indexing.
 - **SAT Solver Integration**: Integrated `z3-solver` for logical constraint feasibility checking.
-- **Analytical Cold Tier**: Refactored historical retrieval to use `pyarrow.dataset` for high-performance cross-epoch scanning and numeric aggregation.
 - **Quantitative Intervals**: Replace R-tree with 1D IntervalTree for optimized $O(\log n + k)$ scalar range querying.
 - **Dimensional Persistence**: Added `schema_registry.json` for mapping fields to base units, ensuring dimensional consistency across system restarts.
 - **Reactive Cascade Graph**: `CascadeManager` dependency graph is now persisted to JSON for fast recovery of reactive constraint relationships.
