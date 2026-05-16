@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "epochdb"
-version = "0.5.0"
+version = "0.6.0"
 description = "An agentic memory engine designed for lossless, tiered verbatim storage and multi-hop retrieval."
 readme = "README.md"
 license = { text = "MIT License" }
 authors = [
   { name = "jersobh" }
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -25,6 +25,11 @@ dependencies = [
     "hnswlib",
     "zstandard",
     "requests",
+    "sortedcontainers",
+    "Rtree",
+    "z3-solver",
+    "intervaltree",
+    "pint",
 ]
 
 [project.optional-dependencies]
@@ -42,3 +47,7 @@ dev = ["pytest", "sentence-transformers", "langgraph"]
 
 [project.urls]
 "Homepage" = "https://github.com/jersobh/epochdb"
+
+[tool.setuptools.packages.find]
+include = ["epochdb*"]
+exclude = ["scratch*", "tests*"]

@@ -1,4 +1,4 @@
-from .engine import EpochDB
+from .engine import EpochDB, AsyncEpochDB
 from .atom import UnifiedMemoryAtom
 
-__all__ = ["EpochDB", "UnifiedMemoryAtom"]
+__all__ = ["EpochDB", "AsyncEpochDB", "UnifiedMemoryAtom"]

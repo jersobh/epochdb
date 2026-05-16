@@ -2,6 +2,30 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [0.6.0] - 2026-05-16
+### Added
+- **Analytical Cold Tier**: Fully eliminated DuckDB dependency, replacing the cold tier analytical engine with a native PyArrow-based Scalar Handler for high-performance cross-epoch scanning and numeric aggregation.
+- **Parallel Retrieval**: Implemented `ThreadPoolExecutor` in `RetrievalManager` for concurrent historical epoch scanning, significantly reducing latency for multi-epoch queries.
+- **Dynamic Signal-to-Noise**: Replaced hardcoded RRF thresholds with a dynamic filtering mechanism and "soft demotion" (0.1x) to preserve context while prioritizing strong signals.
+- **Improved Topic Boosting**: Transitioned to cumulative boosting for intent alignment (+15.0) and narrow entity matches (+10.0), improving retrieval precision for complex queries.
+- **Quantitative Data Support**: Native support for Scalars, Time-Series, and Constraints.
+- **Advanced Indexing**: Integrated B-trees for scalar range queries and R-trees for temporal series indexing.
+- **SAT Solver Integration**: Integrated `z3-solver` for logical constraint feasibility checking.
+- **Quantitative Intervals**: Replace R-tree with 1D IntervalTree for optimized $O(\log n + k)$ scalar range querying.
+- **Dimensional Persistence**: Added `schema_registry.json` for mapping fields to base units, ensuring dimensional consistency across system restarts.
+- **Reactive Cascade Graph**: `CascadeManager` dependency graph is now persisted to JSON for fast recovery of reactive constraint relationships.
+- **Data Reflection**: Implemented Coefficient of Variation (CV) based statistical confidence score calculation for auto-inserting policy atoms.
+- **Fork Resolvers**: Enhanced `check_feasibility` to inject fork shadow scalars before evaluating `z3` constraints.
+- **Serialization Reliability**: Custom schema-based recursive serialization for `SeriesPayload` nested dataclasses, fixing `asdict()` failures.
+- **Unit Mismatch Guard**: Strict dimensional rejection in `query_range` to prevent silent conversion failures.
+- **Cascade Rules & Triggers**: Added a trigger mechanism in `QuantitativeIndexManager` for reactive memory updates.
+- **Unit & Uncertainty Propagation**: Implemented `UnitRegistry` and uncertainty tracking for quantitative payloads.
+
+### Changed
+- **Unified Memory Atom**: Extended the atom structure to support discriminated union payloads.
+- **Recall API**: Added `query_range`, `query_temporal`, and `check_feasibility` to `RetrievalManager`.
+- **Retrieval Pipeline**: Updated 4-way fusion to handle typed supersession (e.g., numeric conflicts and series merging).
+
 ## [0.5.0] - 2026-05-02
 ### Added
 - **Forking & Memory Branching**: Introduced `db.fork(parent_epoch_id, new_epoch_id)` to create logical forks in the memory tree. This enables memory lineage and multi-agent branching without duplicating vector storage.

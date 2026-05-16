@@ -111,7 +111,32 @@ EpochDB includes a native `EpochDBCheckpointer` for LangGraph. It stores thread 
 
 ---
 
-## 7. Memory Forking & Lineage (v0.5.0)
+## 7. Quantitative Logic & Advanced Indexing (v0.6.0)
+
+EpochDB v0.6.0 introduces native support for structured, non-textual data, enabling agents to reason about numbers, time-series, and logical rules with mathematical precision.
+
+### The Quantitative Index Layer
+Alongside the HNSW vector index, EpochDB maintains a parallel quantitative indexing subsystem:
+- **Scalar Index (Interval Trees)**: Uses `IntervalTree` to index scalar variables with interval uncertainty (e.g., `temperature=22.5±0.5`). This enables $O(\log n + k)$ overlap range queries that bypass semantic search entirely, normalized via a persistent `schema_registry.json`.
+- **Series Index (R-trees)**: Temporal-value pairs are indexed as 2D spatial points in an R-tree. This allows efficient range-temporal lookups and provides the foundation for series interpolation and aggregation.
+- **Constraint Checker (SAT Solver)**: Integrated `z3-solver` evaluates complex logical expressions.
+- **Reactive Cascades**: A `CascadeManager` automatically triggers downstream policy updates when quantitative constraints become infeasible. The dependency graph is persisted to JSON.
+- **Statistical Reflection**: Uses Coefficient of Variation (CV) computed over the analytical cold tier to auto-generate policy atoms when trends become highly confident.
+
+### Analytical Cold Tier
+The Cold Tier has been upgraded with **`pyarrow.dataset`**. When performing analytical queries over historical data:
+1. The engine identifies relevant Parquet partitions via the Global Entity Index.
+2. `pyarrow.dataset` performs high-speed columnar scanning and filtering.
+3. Numeric aggregates (mean, max, min) are calculated directly on the compressed storage layer without loading atoms into Hot Tier RAM.
+
+### Unit Registry & Uncertainty
+Quantitative atoms carry metadata for **Dimensional Analysis**:
+- **Units**: Range queries automatically reject or convert mismatched units based on the `UnitRegistry`.
+- **Uncertainty**: Measurement intervals (e.g., `±0.5`) propagate through series interpolation and constraint checks.
+
+---
+
+## 8. Memory Forking & Lineage (v0.5.0)
 
 EpochDB v0.5.0 introduces **Logical Forking**. This allows an application to create a branch in the memory timeline without duplicating the underlying vector data.
 
