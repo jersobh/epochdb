@@ -111,9 +111,9 @@ EpochDB includes a native `EpochDBCheckpointer` for LangGraph. It stores thread 
 
 ---
 
-## 7. Quantitative Logic & Advanced Indexing (v0.6.0)
+## 7. Quantitative Logic & Advanced Indexing (v0.6.1)
 
-EpochDB v0.6.0 introduces native support for structured, non-textual data, enabling agents to reason about numbers, time-series, and logical rules with mathematical precision.
+EpochDB v0.6.1 introduces native support for structured, non-textual data, enabling agents to reason about numbers, time-series, and logical rules with mathematical precision.
 
 ### The Quantitative Index Layer
 Alongside the HNSW vector index, EpochDB maintains a parallel quantitative indexing subsystem:
@@ -136,9 +136,9 @@ Quantitative atoms carry metadata for **Dimensional Analysis**:
 
 ---
 
-## 8. Memory Forking & Lineage (v0.6.0)
+## 8. Memory Forking & Lineage (v0.6.1)
 
-EpochDB v0.6.0 introduces **Logical Forking**. This allows an application to create a branch in the memory timeline without duplicating the underlying vector data.
+EpochDB v0.6.1 introduces **Logical Forking**. This allows an application to create a branch in the memory timeline without duplicating the underlying vector data.
 
 ### How it Works
 When `db.fork(parent_epoch_id, new_epoch_id)` is called:
