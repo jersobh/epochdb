@@ -264,9 +264,17 @@ class RetrievalManager:
         # This doubles as our Entity Extraction: if a candidate atom mentions an entity 
         # that was also in our query (heuristically), it gets a Factor C boost.
         if expand_hops > 0:
-            expansion_set = set(candidates.keys())
+            # Sort candidates by similarity score and expand only the most promising ones
+            sorted_candidates = sorted(candidates.items(), key=lambda x: x[1][1], reverse=True)
+            expansion_limit = max(top_k, 50)
+            expansion_set = {k for k, _ in sorted_candidates[:expansion_limit]}
+            
             for _ in range(expand_hops):
                 new_neighbors: Set[str] = set()
+                
+                # Gather all unique entities to query associations for in a single batch
+                all_entities_to_expand = set()
+                atom_entities_map = {}
                 for a_id in expansion_set:
                     atom_data = candidates.get(a_id)
                     if not atom_data:
@@ -276,9 +284,16 @@ class RetrievalManager:
                     for subj, pred, obj in atom.triples:
                         entities.add(subj)
                         entities.add(obj)
-
+                    atom_entities_map[a_id] = entities
+                    all_entities_to_expand.update(entities)
+                
+                # Batch fetch associations for all entities at once
+                associations_batch = self.kg_manager.get_associations_batch(list(all_entities_to_expand))
+                
+                for a_id in expansion_set:
+                    entities = atom_entities_map.get(a_id, set())
                     for ent in entities:
-                        associations = self.kg_manager.get_associations(ent)
+                        associations = associations_batch.get(ent)
                         if associations:
                             # Process neighbors
                             epoch_to_atom_ids: Dict[str, List[str]] = {}
@@ -308,13 +323,23 @@ class RetrievalManager:
                                     if len(n_atom.embedding) == len(query_emb):
                                          sim = np.dot(n_atom.embedding, query_emb) / (
                                             np.linalg.norm(n_atom.embedding) * np.linalg.norm(query_emb) + 1e-10
-                                        )
+                                         )
                                          # AUTO-BOOST: if we reached this atom via a KG hop, 
                                          # it should count as an entity match for Factor C.
                                          query_entities.add(ent)
                                          new_neighbors.add(n_atom.id)
                                          candidates[n_atom.id] = (n_atom, float(sim))
-                expansion_set = new_neighbors
+                
+                # For next hop, only expand the newly found neighbors up to expansion_limit
+                if len(new_neighbors) > expansion_limit:
+                    sorted_neighbors = sorted(
+                        new_neighbors,
+                        key=lambda x: candidates[x][1] if x in candidates else 0.0,
+                        reverse=True
+                    )
+                    expansion_set = set(sorted_neighbors[:expansion_limit])
+                else:
+                    expansion_set = new_neighbors
 
         # --- 3. Payload Deduplication ---
         all_candidates = list(candidates.values())

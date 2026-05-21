@@ -357,8 +357,12 @@ class EpochDB:
                      "o", "a", "os", "as", "eu", "meu", "minha", "eles", "elas",
                      "quem", "que", "onde", "quando", "como", "esta", "essa", "aquela"}
 
+        # Get significant words for candidates LIKE query
+        sig_words = [w for w in words if w not in blacklist and len(w) > 3]
+        candidates = self.kg_manager.get_candidate_entities(sig_words)
+
         # --- Pass 1: Subjects/Objects must appear in the query ---
-        for ent in self.kg_manager.get_all_entities():
+        for ent in candidates:
             ent_l = ent.lower()
             if ent_l in blacklist:
                 continue
@@ -410,9 +414,12 @@ class EpochDB:
                 raise ValueError("No embedding model configured.")
             
             if self._model_name.startswith("google:"):
-                # Use Google GenAI embeddings
+                # Use Google GenAI embeddings with local Ollama fallback
                 model_id = self._model_name.split(":", 1)[1]
-                self._embedder = GoogleEmbedder(model_id, dim=self.dim)
+                google_emb = GoogleEmbedder(model_id, dim=self.dim)
+                # Fallback to local Ollama (all-minilm)
+                ollama_emb = OllamaEmbedder(model_name="all-minilm", dim=self.dim)
+                self._embedder = FallbackEmbedder(primary=google_emb, secondary=ollama_emb)
             else:
                 # Fallback to SentenceTransformer
                 try:
@@ -737,7 +744,7 @@ class GoogleEmbedder:
             contents=text,
             config={'output_dimensionality': self.dim}
         )
-        return np.array(result.embeddings[0].values, dtype=np.float32)
+        emb = np.array(result.embeddings[0].values, dtype=np.float32)
         if normalize_embeddings:
             norm = np.linalg.norm(emb)
             if norm > 1e-10:
@@ -756,3 +763,58 @@ class GoogleEmbedder:
         embs = [e.values for e in result.embeddings]
         logger.info(f"[GoogleEmbedder] Batch encoding complete.")
         return np.array(embs, dtype=np.float32)
+
+class OllamaEmbedder:
+    """Wrapper for local Ollama Embedding service."""
+    def __init__(self, model_name: str = "all-minilm", dim: int = 384):
+        self.model_name = model_name
+        self.dim = dim
+        self.url = "http://localhost:11434/api/embeddings"
+
+    def encode(self, text: str, normalize_embeddings: bool = True) -> np.ndarray:
+        import requests
+        logger.info(f"[OllamaEmbedder] Encoding text with {self.model_name}...")
+        response = requests.post(
+            self.url,
+            json={"model": self.model_name, "prompt": text},
+            timeout=10
+        )
+        response.raise_for_status()
+        emb = np.array(response.json()["embedding"], dtype=np.float32)
+        
+        if normalize_embeddings:
+            norm = np.linalg.norm(emb)
+            if norm > 1e-10:
+                emb = emb / norm
+        return emb
+
+    def encode_batch(self, texts: List[str]) -> np.ndarray:
+        return np.array([self.encode(t) for t in texts])
+
+class FallbackEmbedder:
+    """Wraps two embedders and falls back to the second if the first fails with a rate limit error."""
+    def __init__(self, primary: Any, secondary: Any):
+        self.primary = primary
+        self.secondary = secondary
+
+    def encode(self, text: str, **kwargs) -> np.ndarray:
+        try:
+            return self.primary.encode(text, **kwargs)
+        except Exception as e:
+            # Check if it's a rate limit or resource exhausted error (429)
+            err_str = str(e).upper()
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "TOO MANY REQUESTS" in err_str:
+                logger.warning(f"Primary embedder failed (429), falling back to secondary: {e}")
+                return self.secondary.encode(text, **kwargs)
+            raise e
+
+    def encode_batch(self, texts: List[str], **kwargs) -> np.ndarray:
+        try:
+            return self.primary.encode_batch(texts, **kwargs)
+        except Exception as e:
+            err_str = str(e).upper()
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "TOO MANY REQUESTS" in err_str:
+                logger.warning(f"Primary batch embedder failed (429), falling back to secondary: {e}")
+                return self.secondary.encode_batch(texts, **kwargs)
+            raise e
+
