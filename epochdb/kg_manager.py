@@ -33,6 +33,7 @@ class KGManager:
             """)
             # Index for fast entity lookups (Stage 1a and Stage 3)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity ON kg_index (entity)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_lower ON kg_index (LOWER(entity))")
             self._conn.commit()
 
     def add_association(self, entity: str, atom_id: str, epoch_id: str):
@@ -75,6 +76,32 @@ class KGManager:
             except Exception as e:
                 logger.error(f"Failed to query SQLite KG for entity '{entity}': {e}")
                 return []
+
+    def get_associations_batch(self, entities: List[str]) -> dict:
+        """Retrieve [atom_id, epoch_id] pairs for a batch of entities in a single query."""
+        if not entities:
+            return {}
+        with self._lock:
+            try:
+                cursor = self._conn.cursor()
+                result = {}
+                # Query in batches of 500 to avoid SQLite limits
+                for i in range(0, len(entities), 500):
+                    chunk = entities[i:i+500]
+                    placeholders = ",".join("?" for _ in chunk)
+                    cursor.execute(
+                        f"SELECT entity, atom_id, epoch_id FROM kg_index WHERE entity IN ({placeholders})",
+                        chunk
+                    )
+                    for row in cursor.fetchall():
+                        ent, atom_id, epoch_id = row
+                        if ent not in result:
+                            result[ent] = []
+                        result[ent].append((atom_id, epoch_id))
+                return result
+            except Exception as e:
+                logger.error(f"Failed to query SQLite KG for batch of {len(entities)} entities: {e}")
+                return {}
 
     def get_all_entities(self) -> List[str]:
         """Returns all distinct entities in the KG."""
@@ -167,6 +194,30 @@ class KGManager:
                 return cursor.fetchall()
             except Exception as e:
                 logger.error(f"Failed to fetch lineage for '{entity}': {e}")
+                return []
+
+    def get_candidate_entities(self, sig_words: List[str]) -> List[str]:
+        """Fetch candidate entities that match any of the significant words or contain acronym parentheses."""
+        if not sig_words:
+            # If no sig words, we can't do LIKE match, return empty to be safe
+            return []
+        with self._lock:
+            try:
+                cursor = self._conn.cursor()
+                conditions = []
+                params = []
+                for w in sig_words:
+                    conditions.append("entity LIKE ?")
+                    params.append(f"%{w}%")
+                
+                # Also always pull entities with parentheses for acronym matches
+                conditions.append("entity LIKE '%(%)%'")
+                
+                query = "SELECT DISTINCT entity FROM kg_index WHERE " + " OR ".join(conditions)
+                cursor.execute(query, params)
+                return [row[0] for row in cursor.fetchall()]
+            except Exception as e:
+                logger.error(f"Failed to fetch candidate entities for {sig_words}: {e}")
                 return []
 
     def commit(self):

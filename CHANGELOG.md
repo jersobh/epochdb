@@ -25,6 +25,8 @@ All notable changes to EpochDB will be documented in this file.
 - **Unified Memory Atom**: Extended the atom structure to support discriminated union payloads.
 - **Recall API**: Added `query_range`, `query_temporal`, and `check_feasibility` to `RetrievalManager`.
 - **Retrieval Pipeline**: Updated 4-way fusion to handle typed supersession (e.g., numeric conflicts and series merging).
+- **Documentation Overhaul**: Updated `README.md`, `how_it_works.md`, and examples to reflect v0.6.0 capabilities and the new Quantitative logical engine.
+- **Version Bump**: Official transition to v0.6.0.
 
 ## [0.5.0] - 2026-05-02
 ### Added
