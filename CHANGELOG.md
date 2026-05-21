@@ -2,6 +2,11 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [0.6.1] - 2026-05-22
+### Changed
+- **Documentation Overhaul**: Audited and aligned all version references across README, how_it_works, benchmarks, examples, and lockfiles to target v0.6.1.
+- **Version Bump**: Official transition to v0.6.1.
+
 ## [0.6.0] - 2026-05-16
 ### Added
 - **Analytical Cold Tier**: Fully eliminated DuckDB dependency, replacing the cold tier analytical engine with a native PyArrow-based Scalar Handler for high-performance cross-epoch scanning and numeric aggregation.
