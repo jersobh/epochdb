@@ -2,6 +2,11 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [0.6.2] - 2026-05-24
+### Changed
+- **Documentation Overhaul**: Synchronized all outdated version references across markdown files, benchmarks, and examples to target v0.6.2.
+- **Version Bump**: Official transition to v0.6.2.
+
 ## [0.6.1] - 2026-05-22
 ### Changed
 - **Documentation Overhaul**: Audited and aligned all version references across README, how_it_works, benchmarks, examples, and lockfiles to target v0.6.1.
