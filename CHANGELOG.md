@@ -2,6 +2,16 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [0.6.2] - 2026-05-24
+### Changed
+- **Documentation Overhaul**: Synchronized all outdated version references across markdown files, benchmarks, and examples to target v0.6.2.
+- **Version Bump**: Official transition to v0.6.2.
+
+## [0.6.1] - 2026-05-22
+### Changed
+- **Documentation Overhaul**: Audited and aligned all version references across README, how_it_works, benchmarks, examples, and lockfiles to target v0.6.1.
+- **Version Bump**: Official transition to v0.6.1.
+
 ## [0.6.0] - 2026-05-16
 ### Added
 - **Analytical Cold Tier**: Fully eliminated DuckDB dependency, replacing the cold tier analytical engine with a native PyArrow-based Scalar Handler for high-performance cross-epoch scanning and numeric aggregation.
@@ -25,6 +35,8 @@ All notable changes to EpochDB will be documented in this file.
 - **Unified Memory Atom**: Extended the atom structure to support discriminated union payloads.
 - **Recall API**: Added `query_range`, `query_temporal`, and `check_feasibility` to `RetrievalManager`.
 - **Retrieval Pipeline**: Updated 4-way fusion to handle typed supersession (e.g., numeric conflicts and series merging).
+- **Documentation Overhaul**: Updated `README.md`, `how_it_works.md`, and examples to reflect v0.6.0 capabilities and the new Quantitative logical engine.
+- **Version Bump**: Official transition to v0.6.0.
 
 ## [0.5.0] - 2026-05-02
 ### Added

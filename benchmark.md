@@ -1,4 +1,4 @@
-# EpochDB v0.5.0 — Benchmark Results
+# EpochDB v0.6.2 — Benchmark Results
 
 All benchmarks run end-to-end using **Gemini embedding-2-preview (3072D)**
 via the Gemini API. No external corpus or cloud vector database required.
@@ -16,7 +16,7 @@ venv/bin/python -m benchmarks.run_benchmark
 
 ## Named Benchmark Suite (Overall)
 
-> `gemini-embedding-2-preview` (3072D) · v0.5.0 Hardened
+> `gemini-embedding-2-preview` (3072D) · v0.6.2 Hardened
 
 | Benchmark | What it tests | Score | Status |
 |---|---|---|---|
@@ -51,7 +51,7 @@ Tests recall at 0→5 hops. Query has near-zero semantic similarity to the termi
 
 8 distinct facts ingested and flushed to Cold Tier. Hot Tier cleared. Recall against Cold Tier only.
 
-- **recall@3**: `1.000` (after v0.5.0 engine upgrades)
+- **recall@3**: `1.000` (after v0.6.2 engine upgrades)
 - **Cold Tier avg query latency**: **30.0 ms**
 
 > ⚠️ Cold Tier search uses one HNSW index per epoch. We aggregate candidates across all historical epochs.
@@ -84,7 +84,7 @@ Query targets the specific signal entity via **Entity Hook** seeding.
 
 ---
 
-### 6. Quantitative Logic Benchmarks (v0.6.0)
+### 6. Quantitative Logic Benchmarks (v0.6.2)
 
 Verified performance of the new quantitative subsystem:
 
@@ -115,9 +115,9 @@ Verified performance of the new quantitative subsystem:
 
 ---
 
-## Final v0.6.0 Certification - 2026-05-07
+## Final v0.6.2 Certification - 2026-05-07
 
-**EpochDB v0.5.0** is the first internal release to deliver a perfect **1.000 sweep** across all named benchmarks while maintaining sub-millisecond relational query speeds.
+**EpochDB v0.6.2** is the first internal release to deliver a perfect **1.000 sweep** across all named benchmarks while maintaining sub-millisecond relational query speeds.
 
 ---
 
