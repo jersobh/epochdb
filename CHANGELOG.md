@@ -2,6 +2,11 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [0.7.1] - 2026-05-25
+### Fixed
+- **Rebranding Fixes**: Unified duplicate `recall_by_entity` implementations into a single thread-safe, batch-loading method.
+- **Bulk retrieval**: Implemented missing `get_associations_batch` in `KGManager` for bulk entity association lookup.
+
 ## [0.7.0] - 2026-05-25
 ### Added
 - **Topological Blackboard Serialization Filtering**: Implemented context-aware blackboard property filtering inside Juno, filtering out redundant text attributes for inactive/unmentioned neighbor concepts.
