@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-benchmark_token_efficiency_accuracy.py — LangGraph vs. EpochDB vs. Juno Benchmark
+benchmark_token_efficiency_accuracy.py — LangGraph vs. EpochDB vs. Astraea Benchmark
 ================================================================================
 Quantitatively compares the input token consumption and fact retrieval correctness of:
 1. Standard LangGraph (Full History Message Buffer with MemorySaver)
 2. LangGraph + EpochDB (Thin State with Selective Semantic Recall)
-3. Juno (+ EpochDB) (Dynamic Blackboard Workspace with Subgraph Tiling)
+3. Astraea (+ EpochDB) (Dynamic Blackboard Workspace with Subgraph Tiling)
 
 Features:
 - Mock Mode: Out-of-the-box offline runs with keyword-seeded embeddings/generation.
@@ -35,24 +35,24 @@ from epochdb.checkpointer import EpochDBCheckpointer
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
-# Juno framework imports (dynamically loaded using parsed --juno-path)
+# Astraea framework imports (dynamically loaded using parsed --astraea-path)
 EpochBlackboard = None
 ContextTiler = None
 LineageContext = None
-HAS_JUNO = False
+HAS_ASTRAEA = False
 
-def import_juno(juno_path: str):
-    global EpochBlackboard, ContextTiler, LineageContext, HAS_JUNO
-    if juno_path and os.path.exists(juno_path):
-        sys.path.insert(0, os.path.abspath(juno_path))
+def import_astraea(astraea_path: str):
+    global EpochBlackboard, ContextTiler, LineageContext, HAS_ASTRAEA
+    if astraea_path and os.path.exists(astraea_path):
+        sys.path.insert(0, os.path.abspath(astraea_path))
     try:
-        from juno import EpochBlackboard
-        from juno.tiler import ContextTiler
-        from juno.types import LineageContext
-        HAS_JUNO = True
+        from astraea import EpochBlackboard
+        from astraea.tiler import ContextTiler
+        from astraea.types import LineageContext
+        HAS_ASTRAEA = True
     except ImportError as e:
-        HAS_JUNO = False
-        print(f"Warning: Could not import Juno framework from {juno_path}: {e}")
+        HAS_ASTRAEA = False
+        print(f"Warning: Could not import Astraea framework from {astraea_path}: {e}")
 
 # Try importing tiktoken for token counting
 try:
@@ -72,7 +72,7 @@ except ImportError:
 # ── Configuration & Colors ───────────────────────────────────────────────────
 
 STORAGE_DIR = "./.epochdb_benchmark_eff_acc"
-JUNO_DIR    = "./.juno_benchmark_eff_acc"
+ASTRAEA_DIR = "./.astraea_benchmark_eff_acc"
 EMBED_MODEL = "gemini-embedding-2-preview"
 GEN_MODEL   = "gemini-3-flash-preview"
 DIM         = 3072
@@ -418,10 +418,10 @@ def make_epochdb_graph(db: EpochDB, client, live_mode: bool, local_embed: bool =
     return workflow.compile(checkpointer=checkpointer)
 
 
-# ── 3. Juno + EpochDB ────────────────────────────────────────────────────────
+# ── 3. Astraea + EpochDB ──────────────────────────────────────────────────────
 
-async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live_mode: bool, local_embed: bool = False) -> Tuple[int, str, str]:
-    """Simulate a Juno agent turn using EpochBlackboard and ContextTiler, returning prompt tokens & response."""
+async def run_astraea_turn(board: Any, client: Any, query: str, turn_idx: int, live_mode: bool, local_embed: bool = False) -> Tuple[int, str, str]:
+    """Simulate an Astraea agent turn using EpochBlackboard and ContextTiler, returning prompt tokens & response."""
     active_concepts = []
     ql = query.lower()
     if "anakin" in ql or ("skywalker" in ql and "luke" not in ql) or "vader" in ql or "family" in ql:
@@ -446,7 +446,7 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
     visited_edges = set()
     lineage = LineageContext(
         triggering_event_id=f"EV-turn-{turn_idx}",
-        agent_name="JunoAgent",
+        agent_name="AstraeaAgent",
         rationale="Retrieval for chat context",
     )
 
@@ -520,7 +520,7 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
         serialized_context = ""
 
     prompt = (
-        "You are a helpful AI assistant with perfect memory powered by Juno.\n"
+        "You are a helpful AI assistant with perfect memory powered by Astraea.\n"
         "Answer the user's query using the context from the blackboard:\n\n"
         f"{serialized_context}\n\n"
         f"User: {query}\n"
@@ -530,7 +530,7 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
     response = get_response(client, prompt, turn_idx, live_mode)
 
     vec = embed(client, query, live_mode, local_embed)
-    juno_vec = list(vec)
+    astraea_vec = list(vec)
 
     for concept_id in active_concepts:
         concept_name = concept_id.split(":")[-1]
@@ -539,7 +539,7 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
                 node_id=concept_id,
                 label="Concept",
                 properties={"text": f"Concept definition for {concept_name}"},
-                vector=juno_vec,
+                vector=astraea_vec,
                 lineage=lineage
             )
 
@@ -549,7 +549,7 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
         node_id=chat_id,
         label="ChatFragment",
         properties={"text": interaction, "turn": turn_idx},
-        vector=juno_vec,
+        vector=astraea_vec,
         lineage=lineage
     )
 
@@ -565,7 +565,7 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
             node_id="global:concept:Anakin",
             label="Concept",
             properties={"text": "Anakin Skywalker is a Jedi who turned to the dark side and became Darth Vader"},
-            vector=juno_vec,
+            vector=astraea_vec,
             lineage=lineage
         )
     if "obi-wan" in ql or "kenobi" in ql:
@@ -573,7 +573,7 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
             node_id="global:concept:ObiWan",
             label="Concept",
             properties={"text": "Obi-Wan Kenobi is Anakin's Jedi master"},
-            vector=juno_vec,
+            vector=astraea_vec,
             lineage=lineage
         )
         await board.write_edge("global:concept:Anakin", "global:concept:ObiWan", "trained_by", {}, lineage)
@@ -582,7 +582,7 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
             node_id="global:concept:Luke",
             label="Concept",
             properties={"text": "Luke and Leia are Anakin's twin children, hidden to protect them from Darth Vader and the Emperor"},
-            vector=juno_vec,
+            vector=astraea_vec,
             lineage=lineage
         )
         await board.write_edge("global:concept:Anakin", "global:concept:Luke", "has_child", {}, lineage)
@@ -591,7 +591,7 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
             node_id="global:concept:Yoda",
             label="Concept",
             properties={"text": "Yoda is the grand Jedi master who trains Luke on Dagobah"},
-            vector=juno_vec,
+            vector=astraea_vec,
             lineage=lineage
         )
         await board.write_edge("global:concept:Luke", "global:concept:Yoda", "trained_by", {}, lineage)
@@ -600,7 +600,7 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
             node_id="global:concept:Palpatine",
             label="Concept",
             properties={"text": "Emperor Palpatine is the Sith Lord whom Darth Vader serves"},
-            vector=juno_vec,
+            vector=astraea_vec,
             lineage=lineage
         )
         await board.write_edge("global:concept:Anakin", "global:concept:Palpatine", "serves", {}, lineage)
@@ -609,7 +609,7 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
             node_id="global:concept:Maul",
             label="Concept",
             properties={"text": "Darth Maul is a Sith who killed Qui-Gon Jinn, who had discovered Anakin"},
-            vector=juno_vec,
+            vector=astraea_vec,
             lineage=lineage
         )
         await board.write_edge("global:concept:Anakin", "global:concept:Maul", "associated_with", {}, lineage)
@@ -619,16 +619,16 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
 
 # ── ASCII Chart Drawing ───────────────────────────────────────────────────────
 
-def draw_ascii_chart(turns: List[int], baseline: List[int], epochdb: List[int], juno: List[int]):
+def draw_ascii_chart(turns: List[int], baseline: List[int], epochdb: List[int], astraea: List[int]):
     print(f"\n{C.BOLD}{C.CYAN}📈 Input Token Growth Chart (over turns){C.END}")
 
-    max_val = max(max(baseline), max(epochdb), max(juno))
+    max_val = max(max(baseline), max(epochdb), max(astraea))
     height = 10
     width = 50
 
     scaled_base = [int((val / max_val) * (height - 1)) for val in baseline]
     scaled_ep = [int((val / max_val) * (height - 1)) for val in epochdb]
-    scaled_jn = [int((val / max_val) * (height - 1)) for val in juno]
+    scaled_jn = [int((val / max_val) * (height - 1)) for val in astraea]
 
     grid = [[" " for _ in range(width)] for _ in range(height)]
     num_points = len(turns)
@@ -637,7 +637,7 @@ def draw_ascii_chart(turns: List[int], baseline: List[int], epochdb: List[int], 
         idx = int((col / (width - 1)) * (num_points - 1))
         b_row = height - 1 - scaled_base[idx]
         e_row = height - 1 - scaled_ep[idx]
-        j_row = height - 1 - scaled_jn[idx]
+        a_row = height - 1 - scaled_jn[idx]
 
         grid[b_row][col] = "B"
 
@@ -646,10 +646,10 @@ def draw_ascii_chart(turns: List[int], baseline: List[int], epochdb: List[int], 
         else:
             grid[e_row][col] = "E"
 
-        if grid[j_row][col] in ("B", "E", "X"):
-            grid[j_row][col] = "X"
+        if grid[a_row][col] in ("B", "E", "X"):
+            grid[a_row][col] = "X"
         else:
-            grid[j_row][col] = "J"
+            grid[a_row][col] = "A"
 
     print("      ┌" + "─" * width + "┐")
     for r in range(height):
@@ -661,8 +661,8 @@ def draw_ascii_chart(turns: List[int], baseline: List[int], epochdb: List[int], 
                 print(f"{C.RED}B{C.END}", end="")
             elif char == "E":
                 print(f"{C.GREEN}E{C.END}", end="")
-            elif char == "J":
-                print(f"{C.CYAN}J{C.END}", end="")
+            elif char == "A":
+                print(f"{C.CYAN}A{C.END}", end="")
             elif char == "X":
                 print(f"{C.YELLOW}X{C.END}", end="")
             else:
@@ -670,49 +670,49 @@ def draw_ascii_chart(turns: List[int], baseline: List[int], epochdb: List[int], 
         print("│")
     print("      └" + "─" * width + "┘")
     print("        " + " ".join([f"Turn {turns[int(p * (num_points-1))]}" for p in [0.0, 0.25, 0.5, 0.75, 1.0]]))
-    print(f"        (Legend: {C.RED}B{C.END} = Standard LangGraph (MemorySaver), {C.GREEN}E{C.END} = LangGraph + EpochDB, {C.CYAN}J{C.END} = Juno + EpochDB, {C.YELLOW}X{C.END} = Overlap)")
+    print(f"        (Legend: {C.RED}B{C.END} = Standard LangGraph (MemorySaver), {C.GREEN}E{C.END} = LangGraph + EpochDB, {C.CYAN}A{C.END} = Astraea + EpochDB, {C.YELLOW}X{C.END} = Overlap)")
 
 
 # ── Report Generation ─────────────────────────────────────────────────────────
 
-def save_report(results: List[dict], total_base: int, total_ep: int, total_jn: int, live_mode: bool):
+def save_report(results: List[dict], total_base: int, total_ep: int, total_ast: int, live_mode: bool):
     filename = "examples/benchmark_efficiency_results.md"
     savings_ep = (total_base - total_ep) / total_base * 100
-    savings_jn = (total_base - total_jn) / total_base * 100
+    savings_ast = (total_base - total_ast) / total_base * 100
 
     with open(filename, "w", encoding="utf-8") as f:
-        f.write("# EpochDB vs. Standard LangGraph vs. Juno Token & Accuracy Benchmark\n\n")
+        f.write("# EpochDB vs. Standard LangGraph vs. Astraea Token & Accuracy Benchmark\n\n")
         f.write("This benchmark evaluates the input token efficiency and retrieval accuracy across three conversational agent architectures:\n")
         f.write("1. **Standard LangGraph (MemorySaver)**: Flat, full-history message buffer ($O(N^2)$ cumulative token growth).\n")
         f.write("2. **LangGraph + EpochDB**: Thin state with selective semantic recall ($O(N)$ linear token growth).\n")
-        f.write("3. **Juno (+ EpochDB)**: Dynamic blackboard workspace with targeted subgraph tiling ($O(N)$ linear token growth with structural context).\n\n")
+        f.write("3. **Astraea (+ EpochDB)**: Dynamic blackboard workspace with targeted subgraph tiling ($O(N)$ linear token growth with structural context).\n\n")
 
         f.write("## Executive Summary\n\n")
         f.write(f"- **Execution Mode**: `{'Live (Gemini API)' if live_mode else 'Offline Mock (Local Keyword Embeddings)'}`\n")
         f.write(f"- **Standard LangGraph Input Tokens**: **{total_base:,}**\n")
         f.write(f"- **LangGraph + EpochDB Input Tokens**: **{total_ep:,}** (Savings vs. Standard: **{savings_ep:.1f}%**)\n")
-        f.write(f"- **Juno (+ EpochDB) Input Tokens**: **{total_jn:,}** (Savings vs. Standard: **{savings_jn:.1f}%**)\n\n")
+        f.write(f"- **Astraea (+ EpochDB) Input Tokens**: **{total_ast:,}** (Savings vs. Standard: **{savings_ast:.1f}%**)\n\n")
 
         f.write("## Performance & Correctness Matrix\n\n")
-        f.write("| Turn | User Query | Standard LangGraph (Tokens/Grade) | LangGraph + EpochDB (Tokens/Grade) | Juno (+ EpochDB) (Tokens/Grade) |\n")
+        f.write("| Turn | User Query | Standard LangGraph (Tokens/Grade) | LangGraph + EpochDB (Tokens/Grade) | Astraea (+ EpochDB) (Tokens/Grade) |\n")
         f.write("| --- | --- | --- | --- | --- |\n")
 
         for r in results:
             b_grade = "✓" if r["baseline_ok"] else f"✗ (Missing: {', '.join(r['baseline_missing'])})"
             e_grade = "✓" if r["epochdb_ok"] else f"✗ (Missing: {', '.join(r['epochdb_missing'])})"
-            j_grade = "✓" if r["juno_ok"] else f"✗ (Missing: {', '.join(r['juno_missing'])})"
+            a_grade = "✓" if r["astraea_ok"] else f"✗ (Missing: {', '.join(r['astraea_missing'])})"
             
-            f.write(f"| {r['turn']} | *\"{r['query']}\"* | {r['baseline_tokens']:,} / {b_grade} | {r['epochdb_tokens']:,} / {e_grade} | {r['juno_tokens']:,} / {j_grade} |\n")
+            f.write(f"| {r['turn']} | *\"{r['query']}\"* | {r['baseline_tokens']:,} / {b_grade} | {r['epochdb_tokens']:,} / {e_grade} | {r['astraea_tokens']:,} / {a_grade} |\n")
 
-        f.write(f"| **TOTAL** | | **{total_base:,}** | **{total_ep:,}** | **{total_jn:,}** |\n\n")
+        f.write(f"| **TOTAL** | | **{total_base:,}** | **{total_ep:,}** | **{total_ast:,}** |\n\n")
 
         f.write("## Findings & Insights\n\n")
         f.write("### 1. Cumulative Token Footprint\n")
         f.write("- **Standard LangGraph** experiences quadratic cost scaling. As conversation length grows, the input token volume per turn spirals upwards.\n")
-        f.write("- **LangGraph + EpochDB** and **Juno** maintain a flattened, linear cost scaling. Per-turn prompt size remains stable and flat, regardless of conversation depth.\n\n")
+        f.write("- **LangGraph + EpochDB** and **Astraea** maintain a flattened, linear cost scaling. Per-turn prompt size remains stable and flat, regardless of conversation depth.\n\n")
         f.write("### 2. Fact Correctness & Memory Retrieval\n")
         f.write("- All three architectures successfully retrieve the correct context and answer the queries correctly (100% accuracy).\n")
-        f.write("- This demonstrates that **EpochDB** and **Juno** achieve substantial token savings (typically >50% on longer conversations) **without any loss in retrieval quality or factual correctness**.")
+        f.write("- This demonstrates that **EpochDB** and **Astraea** achieve substantial token savings (typically >50% on longer conversations) **without any loss in retrieval quality or factual correctness**.")
 
     print(f"\n{C.GREEN}✓ Benchmark results report successfully saved to: {filename}{C.END}")
 
@@ -721,18 +721,18 @@ def save_report(results: List[dict], total_base: int, total_ep: int, total_jn: i
 
 async def main():
     global DIM, EMBED_MODEL
-    parser = argparse.ArgumentParser(description="LangGraph vs EpochDB vs Juno Token Benchmark")
+    parser = argparse.ArgumentParser(description="LangGraph vs EpochDB vs Astraea Token Benchmark")
     parser.add_argument("--live", action="store_true", help="Run with real Gemini API embeddings & generation")
     parser.add_argument("--keep", action="store_true", help="Keep the benchmark storage directories after execution")
     parser.add_argument("--local-embed", action="store_true", help="Use a local tiny model (all-MiniLM-L6-v2) for embeddings instead of Gemini")
     
-    default_juno_path = os.path.abspath(
+    default_astraea_path = os.path.abspath(
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "juno_framework")
     )
     parser.add_argument(
-        "--juno-path",
+        "--astraea-path",
         type=str,
-        default=default_juno_path,
+        default=default_astraea_path,
         help="Path to the juno_framework directory"
     )
     args = parser.parse_args()
@@ -742,12 +742,12 @@ async def main():
         DIM = 384
         EMBED_MODEL = "all-MiniLM-L6-v2"
 
-    import_juno(args.juno_path)
-    if not HAS_JUNO:
-        print(f"{C.RED}Error: Juno framework is required to run this benchmark. Please check --juno-path.{C.END}")
+    import_astraea(args.astraea_path)
+    if not HAS_ASTRAEA:
+        print(f"{C.RED}Error: Astraea framework is required to run this benchmark. Please check --astraea-path.{C.END}")
         sys.exit(1)
 
-    for p in [STORAGE_DIR, JUNO_DIR]:
+    for p in [STORAGE_DIR, ASTRAEA_DIR]:
         if os.path.exists(p):
             shutil.rmtree(p)
 
@@ -773,16 +773,16 @@ async def main():
             print(f"{C.YELLOW}Falling back to Mock Mode...{C.END}")
 
 
-    print(C.header("EpochDB vs. LangGraph vs. Juno Token & Accuracy Benchmark"))
+    print(C.header("EpochDB vs. LangGraph vs. Astraea Token & Accuracy Benchmark"))
     print(f"  Mode:            {'LIVE (Gemini API)' if live_mode else 'MOCK (Keyword-Seeded)'}")
     print(f"  Embeddings:      {'Local (all-MiniLM-L6-v2)' if local_embed else 'Gemini API'}")
     print(f"  Token Estimator: {'tiktoken (cl100k_base)' if HAS_TIKTOKEN else 'Character count / 4'}")
     print(f"  Storage Dir:     {STORAGE_DIR}")
-    print(f"  Juno Dir:        {JUNO_DIR}")
+    print(f"  Astraea Dir:     {ASTRAEA_DIR}")
     print("━" * 80)
 
     db = EpochDB(storage_dir=STORAGE_DIR, dim=DIM, model=f"google:{EMBED_MODEL}" if (live_mode and not local_embed) else None)
-    juno_board = EpochBlackboard(storage_dir=JUNO_DIR, dim=DIM, model=f"google:{EMBED_MODEL}" if (live_mode and not local_embed) else None)
+    astraea_board = EpochBlackboard(storage_dir=ASTRAEA_DIR, dim=DIM, model=f"google:{EMBED_MODEL}" if (live_mode and not local_embed) else None)
 
     baseline_app = make_baseline_graph(client, live_mode)
     epochdb_app = make_epochdb_graph(db, client, live_mode, local_embed)
@@ -793,7 +793,7 @@ async def main():
     results = []
     total_base = 0
     total_ep = 0
-    total_jn = 0
+    total_ast = 0
 
     print(f"\n{C.BOLD}Executing simulated conversation turns & verifying correctness...{C.END}\n")
 
@@ -815,41 +815,41 @@ async def main():
         ep_response = res_ep["response"]
         ep_ok, ep_missing = verify_response(ep_response, idx)
 
-        # 3. Run Juno + EpochDB
-        jn_tokens, jn_response, jn_prompt = await run_juno_turn(juno_board, client, query, idx, live_mode, local_embed)
-        jn_ok, jn_missing = verify_response(jn_response, idx)
+        # 3. Run Astraea + EpochDB
+        ast_tokens, ast_response, ast_prompt = await run_astraea_turn(astraea_board, client, query, idx, live_mode, local_embed)
+        ast_ok, ast_missing = verify_response(ast_response, idx)
 
         b_status = f"{C.GREEN}✓{C.END}" if base_ok else f"{C.RED}✗ (Missing: {base_missing}){C.END}"
         e_status = f"{C.GREEN}✓{C.END}" if ep_ok else f"{C.RED}✗ (Missing: {ep_missing}){C.END}"
-        j_status = f"{C.GREEN}✓{C.END}" if jn_ok else f"{C.RED}✗ (Missing: {jn_missing}){C.END}"
+        a_status = f"{C.GREEN}✓{C.END}" if ast_ok else f"{C.RED}✗ (Missing: {ast_missing}){C.END}"
 
         print(f"         ├─ Standard: {base_tokens:5,} tokens | Accuracy: {b_status}")
         print(f"         ├─ EpochDB:  {ep_tokens:5,} tokens | Accuracy: {e_status}  ({C.GREEN}-{((base_tokens - ep_tokens)/base_tokens*100):.1f}%{C.END})")
-        print(f"         └─ Juno:     {jn_tokens:5,} tokens | Accuracy: {j_status}  ({C.CYAN}-{((base_tokens - jn_tokens)/base_tokens*100):.1f}%{C.END})")
+        print(f"         └─ Astraea:  {ast_tokens:5,} tokens | Accuracy: {a_status}  ({C.CYAN}-{((base_tokens - ast_tokens)/base_tokens*100):.1f}%{C.END})")
 
         results.append({
             "turn": turn_num,
             "query": query,
             "baseline_tokens": base_tokens,
             "epochdb_tokens": ep_tokens,
-            "juno_tokens": jn_tokens,
+            "astraea_tokens": ast_tokens,
             "baseline_ok": base_ok,
             "baseline_missing": base_missing,
             "epochdb_ok": ep_ok,
             "epochdb_missing": ep_missing,
-            "juno_ok": jn_ok,
-            "juno_missing": jn_missing
+            "astraea_ok": ast_ok,
+            "astraea_missing": ast_missing
         })
 
         total_base += base_tokens
         total_ep += ep_tokens
-        total_jn += jn_tokens
+        total_ast += ast_tokens
 
     db.close()
-    await juno_board.close()
+    await astraea_board.close()
 
     if not args.keep:
-        for p in [STORAGE_DIR, JUNO_DIR]:
+        for p in [STORAGE_DIR, ASTRAEA_DIR]:
             if os.path.exists(p):
                 shutil.rmtree(p)
 
@@ -858,21 +858,21 @@ async def main():
     print("━" * 80)
     print(f"  Standard LangGraph (MemorySaver) Input Tokens:  {total_base:8,}")
     print(f"  LangGraph + EpochDB Input Tokens:               {total_ep:8,}")
-    print(f"  Juno (+ EpochDB) Input Tokens:                  {total_jn:8,}")
+    print(f"  Astraea (+ EpochDB) Input Tokens:               {total_ast:8,}")
     
     savings_ep = (total_base - total_ep) / total_base * 100
-    savings_jn = (total_base - total_jn) / total_base * 100
+    savings_ast = (total_base - total_ast) / total_base * 100
     print(f"  {C.BOLD}EpochDB Input Token Savings:                     {C.GREEN}{savings_ep:.1f}%{C.END}")
-    print(f"  {C.BOLD}Juno Input Token Savings:                        {C.CYAN}{savings_jn:.1f}%{C.END}")
+    print(f"  {C.BOLD}Astraea Input Token Savings:                     {C.CYAN}{savings_ast:.1f}%{C.END}")
     print("━" * 80)
 
     turns_list = [r["turn"] for r in results]
     base_list = [r["baseline_tokens"] for r in results]
     ep_list = [r["epochdb_tokens"] for r in results]
-    jn_list = [r["juno_tokens"] for r in results]
-    draw_ascii_chart(turns_list, base_list, ep_list, jn_list)
+    ast_list = [r["astraea_tokens"] for r in results]
+    draw_ascii_chart(turns_list, base_list, ep_list, ast_list)
 
-    save_report(results, total_base, total_ep, total_jn, live_mode)
+    save_report(results, total_base, total_ep, total_ast, live_mode)
 
 
 if __name__ == "__main__":

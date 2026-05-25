@@ -4,7 +4,7 @@ import uuid
 import json
 import logging
 import threading
-from typing import List, Optional, Dict, Any, Set
+from typing import List, Optional, Dict, Any, Set, Union
 
 import numpy as np
 
@@ -433,41 +433,8 @@ class EpochDB:
                     "(or any SentenceTransformer model name) to EpochDB.__init__."
                 )
             if self._model_name.startswith("google:"):
-                class GeminiEmbedder:
-                    def __init__(self, model_name: str):
-                        self.model = model_name.split("google:", 1)[-1]
-                        import os
-                        api_key = os.environ.get("GEMINI_API_KEY")
-                        if not api_key:
-                            raise ValueError("GEMINI_API_KEY environment variable is required for Gemini embeddings.")
-                        from google import genai
-                        self.client = genai.Client(api_key=api_key)
-
-                    def encode(self, sentences, normalize_embeddings=True):
-                        import numpy as np
-                        if isinstance(sentences, str):
-                            input_list = [sentences]
-                            is_single = True
-                        else:
-                            input_list = list(sentences)
-                            is_single = False
-
-                        results = []
-                        for text in input_list:
-                            resp = self.client.models.embed_content(model=self.model, contents=text)
-                            val = resp.embeddings[0].values
-                            vec = np.array(val, dtype=np.float32)
-                            if normalize_embeddings:
-                                norm = np.linalg.norm(vec)
-                                if norm > 1e-10:
-                                    vec /= norm
-                            results.append(vec)
-
-                        if is_single:
-                            return results[0]
-                        return np.array(results, dtype=np.float32)
-
-                self._embedder = GeminiEmbedder(self._model_name)
+                model_id = self._model_name.split("google:", 1)[-1]
+                self._embedder = GoogleEmbedder(model_id, dim=self.dim)
             else:
                 try:
                     from sentence_transformers import SentenceTransformer
@@ -762,35 +729,52 @@ class GoogleEmbedder:
             self._client = genai.Client(api_key=api_key, http_options={'api_version': 'v1beta'})
         return self._client
 
-    def encode(self, text: str, normalize_embeddings: bool = True) -> np.ndarray:
+    def encode(self, text: Union[str, List[str]], normalize_embeddings: bool = True) -> np.ndarray:
         client = self._get_client()
-        logger.debug(f"[GoogleEmbedder] Encoding text (len={len(text)})...")
-        # Gemini embedding call
+        logger.debug(f"[GoogleEmbedder] Encoding text (type={type(text)})...")
         model_path = self.model_id if "/" in self.model_id else f"models/{self.model_id}"
-        result = client.models.embed_content(
-            model=model_path,
-            contents=text,
-            config={'output_dimensionality': self.dim}
-        )
-        emb = np.array(result.embeddings[0].values, dtype=np.float32)
+        
+        is_single = isinstance(text, str)
+        contents = [text] if is_single else list(text)
+        
+        import time
+        import random
+        max_retries = 6
+        base_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                result = client.models.embed_content(
+                    model=model_path,
+                    contents=contents,
+                    config={'output_dimensionality': self.dim}
+                )
+                break
+            except Exception as e:
+                err_str = str(e)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "Resource exhausted" in err_str:
+                    if attempt == max_retries - 1:
+                        logger.error(f"[GoogleEmbedder] Rate limit retry limit reached. Propagating exception.")
+                        raise e
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(f"[GoogleEmbedder] Rate limit hit (429). Retrying in {delay:.2f}s... (Attempt {attempt+1}/{max_retries})")
+                    time.sleep(delay)
+                else:
+                    raise e
+        
+        embs = [np.array(e.values, dtype=np.float32) for e in result.embeddings]
         if normalize_embeddings:
-            norm = np.linalg.norm(emb)
-            if norm > 1e-10:
-                emb = emb / norm
-        logger.debug(f"[GoogleEmbedder] Encoding complete. Dim: {len(emb)}")
-        return emb
+            for i in range(len(embs)):
+                norm = np.linalg.norm(embs[i])
+                if norm > 1e-10:
+                    embs[i] /= norm
+                    
+        if is_single:
+            return embs[0]
+        return np.array(embs, dtype=np.float32)
 
     def encode_batch(self, texts: List[str]) -> np.ndarray:
-        client = self._get_client()
-        logger.info(f"[GoogleEmbedder] Encoding batch of {len(texts)} texts...")
-        result = client.models.embed_content(
-            model=self.model_id,
-            contents=texts,
-            config={'output_dimensionality': self.dim}
-        )
-        embs = [e.values for e in result.embeddings]
-        logger.info(f"[GoogleEmbedder] Batch encoding complete.")
-        return np.array(embs, dtype=np.float32)
+        return self.encode(texts, normalize_embeddings=True)
 
 class OllamaEmbedder:
     """Wrapper for local Ollama Embedding service."""
