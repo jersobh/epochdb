@@ -11,9 +11,13 @@ env/
 
 # EpochDB local storage
 .epochdb*/
+.juno*/
 .epochdb_agent/
 .epochdb_benchmark/
 .scaling_test_db/
+.test_debug_analytics/
+.antigravity_venv/
+.small_venv/
 *.parquet
 
 # Benchmark assets 
