@@ -165,6 +165,7 @@ class EpochDB:
         payload: Any,
         embedding: np.ndarray,
         triples: List[tuple] = None,
+        atom_id: Optional[str] = None,
     ) -> str:
         """Store a new memory atom with its embedding and optional KG triples."""
         if triples is None:
@@ -179,13 +180,16 @@ class EpochDB:
         ts = max(time.time(), self._last_timestamp + 0.000001)
         self._last_timestamp = ts
 
-        atom = UnifiedMemoryAtom(
-            payload=payload,
-            embedding=embedding,
-            triples=triples,
-            epoch_id=self.current_epoch_id,
-            created_at=ts,
-        )
+        atom_kwargs = {
+            "payload": payload,
+            "embedding": embedding,
+            "triples": triples,
+            "epoch_id": self.current_epoch_id,
+            "created_at": ts,
+        }
+        if atom_id is not None:
+            atom_kwargs["id"] = atom_id
+        atom = UnifiedMemoryAtom(**atom_kwargs)
 
         # ACID Multi-Index Transaction.
         with MultiIndexTransaction(self.wal, self.hot_tier) as tx:
@@ -294,21 +298,58 @@ class EpochDB:
     # -------------------------------------------------------------------------
 
     def _get_embedder(self):
-        """Lazy-load the SentenceTransformer model on first use."""
+        """Lazy-load the embedding model on first use."""
         if self._embedder is None:
             if self._model_name is None:
                 raise ValueError(
                     "No embedding model configured. Pass model='all-MiniLM-L6-v2' "
                     "(or any SentenceTransformer model name) to EpochDB.__init__."
                 )
-            try:
-                from sentence_transformers import SentenceTransformer
-            except ImportError:
-                raise ImportError(
-                    "sentence-transformers is required for auto-embedding. "
-                    "Install it with: pip install epochdb[embeddings]"
-                )
-            self._embedder = SentenceTransformer(self._model_name)
+            if self._model_name.startswith("google:"):
+                class GeminiEmbedder:
+                    def __init__(self, model_name: str):
+                        self.model = model_name.split("google:", 1)[-1]
+                        import os
+                        api_key = os.environ.get("GEMINI_API_KEY")
+                        if not api_key:
+                            raise ValueError("GEMINI_API_KEY environment variable is required for Gemini embeddings.")
+                        from google import genai
+                        self.client = genai.Client(api_key=api_key)
+
+                    def encode(self, sentences, normalize_embeddings=True):
+                        import numpy as np
+                        if isinstance(sentences, str):
+                            input_list = [sentences]
+                            is_single = True
+                        else:
+                            input_list = list(sentences)
+                            is_single = False
+
+                        results = []
+                        for text in input_list:
+                            resp = self.client.models.embed_content(model=self.model, contents=text)
+                            val = resp.embeddings[0].values
+                            vec = np.array(val, dtype=np.float32)
+                            if normalize_embeddings:
+                                norm = np.linalg.norm(vec)
+                                if norm > 1e-10:
+                                    vec /= norm
+                            results.append(vec)
+
+                        if is_single:
+                            return results[0]
+                        return np.array(results, dtype=np.float32)
+
+                self._embedder = GeminiEmbedder(self._model_name)
+            else:
+                try:
+                    from sentence_transformers import SentenceTransformer
+                except ImportError:
+                    raise ImportError(
+                        "sentence-transformers is required for auto-embedding. "
+                        "Install it with: pip install epochdb[embeddings]"
+                    )
+                self._embedder = SentenceTransformer(self._model_name)
         return self._embedder
 
     def remember(self, text: str, triples: List[tuple] = None) -> str:
