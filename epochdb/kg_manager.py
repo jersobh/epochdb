@@ -1,7 +1,7 @@
 import sqlite3
 import os
 import logging
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,32 @@ class KGManager:
         except Exception as e:
             logger.error(f"Failed to query SQLite KG for entity '{entity}': {e}")
             return []
+
+    def get_associations_batch(self, entities: List[str]) -> Dict[str, List[List[str]]]:
+        """Retrieve all [atom_id, epoch_id] pairs for a batch of entities."""
+        if not entities:
+            return {}
+        try:
+            cursor = self._conn.cursor()
+            results = {}
+            for i in range(0, len(entities), 500):
+                chunk = entities[i:i+500]
+                placeholders = ",".join("?" for _ in chunk)
+                cursor.execute(
+                    f"SELECT entity, atom_id, epoch_id FROM kg_index WHERE entity IN ({placeholders})",
+                    chunk
+                )
+                for ent, atom_id, epoch_id in cursor.fetchall():
+                    if ent not in results:
+                        results[ent] = []
+                    results[ent].append([atom_id, epoch_id])
+            for ent in entities:
+                if ent not in results:
+                    results[ent] = []
+            return results
+        except Exception as e:
+            logger.error(f"Failed to query SQLite KG for batch of entities: {e}")
+            return {ent: [] for ent in entities}
 
     def get_all_entities(self) -> List[str]:
         """Returns all distinct entities in the KG."""
