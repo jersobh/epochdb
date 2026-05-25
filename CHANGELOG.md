@@ -2,10 +2,11 @@
 
 All notable changes to EpochDB will be documented in this file.
 
-## [0.6.2] - 2026-05-24
-### Changed
-- **Documentation Overhaul**: Synchronized all outdated version references across markdown files, benchmarks, and examples to target v0.6.2.
-- **Version Bump**: Official transition to v0.6.2.
+## [0.7.0] - 2026-05-25
+### Added
+- **Topological Blackboard Serialization Filtering**: Implemented context-aware blackboard property filtering inside Juno, filtering out redundant text attributes for inactive/unmentioned neighbor concepts.
+- **Unified Entity Extraction**: Standardized agent recall retrieval using the native `db.extract_entities` API instead of manual blacklist/whitelist heuristics.
+- **Checkpointer Prompt Alignment**: Standardized sliding window history representations across Standard, EpochDB, and Juno graph configurations to ensure completely fair benchmarking.
 
 ## [0.6.1] - 2026-05-22
 ### Changed
