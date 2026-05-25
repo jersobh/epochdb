@@ -274,8 +274,8 @@ class EpochDB:
             if ent.lower() in blacklist:
                 continue
             ent_l = ent.lower()
-            # Only substring match — no fuzzy token matching (which was the bug)
-            if ent_l in clean_text:
+            ent_parts = [p for p in ent_l.replace("-", " ").split() if len(p) > 3]
+            if ent_l in clean_text or any(p in words for p in ent_parts):
                 found.add(ent)
 
         # --- Pass 2: Predicates — substring + cautious prefix fuzzy ---

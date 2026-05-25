@@ -98,74 +98,74 @@ class C:
 
 SCENARIO_TURNS = [
     {
-        "user": "Hi, I'm Jeff. I'm starting a new project called Aegis.",
-        "assistant": "Hello Jeff! I've noted that you're starting Project Aegis. Let me know what we are building!",
+        "user": "Let's talk about Star Wars. Anakin Skywalker is a young slave on Tatooine who has a high concentration of midi-chlorians.",
+        "assistant": "Ah, Star Wars! Yes, Anakin Skywalker has a high midi-chlorian count and was discovered on Tatooine.",
     },
     {
-        "user": "Project Aegis is a distributed graph database focused on sub-millisecond retrieval.",
-        "assistant": "Got it. Project Aegis is a distributed graph database designed for sub-millisecond retrieval performance.",
+        "user": "Anakin's master is Obi-Wan Kenobi, who trains him after Qui-Gon Jinn is killed by Darth Maul.",
+        "assistant": "Got it. Obi-Wan Kenobi trains Anakin Skywalker after Qui-Gon Jinn falls to Darth Maul.",
     },
     {
-        "user": "We will build the Aegis database using the Rust programming language for performance and memory safety.",
-        "assistant": "Excellent choice. Building the Aegis database in Rust ensures high performance and memory safety.",
+        "user": "Anakin falls to the dark side and becomes Darth Vader, serving Emperor Palpatine.",
+        "assistant": "Indeed. Anakin Skywalker turns into Darth Vader under the influence of Emperor Palpatine.",
     },
     {
-        "user": "The storage layer of Aegis is based on LSM-trees and uses a custom write-ahead log (WAL).",
-        "assistant": "Understood. The Aegis storage layer uses LSM-trees and a custom write-ahead log (WAL) for durability and fast write throughput.",
+        "user": "Anakin has twins, Luke Skywalker and Leia Organa, who are hidden from him to protect them.",
+        "assistant": "Understood. The twins Luke and Leia are hidden away to keep them safe from Darth Vader and the Emperor.",
     },
     {
-        "user": "We are targeting a launch date of October 2026.",
-        "assistant": "Recorded. The launch target for Project Aegis is October 2026.",
+        "user": "Luke trains with Yoda on Dagobah and eventually helps Anakin redeem himself, defeating Palpatine on the second Death Star.",
+        "assistant": "Recorded. Luke Skywalker trains under Yoda on Dagobah, and eventually helps redeem Darth Vader, defeating Palpatine on the Death Star.",
     },
     {
-        "user": "What is the launch date we are targeting for our project?",
-        "assistant": "We are targeting October 2026 as the launch date for Project Aegis.",
+        "user": "Where did Luke Skywalker train, and who was his teacher?",
+        "assistant": "Luke Skywalker trained on Dagobah with Yoda.",
     },
     {
-        "user": "What language are we using to build the Aegis database?",
-        "assistant": "We are building the Aegis database using the Rust programming language for performance and memory safety.",
+        "user": "Who is Anakin Skywalker's master, and who killed Qui-Gon Jinn?",
+        "assistant": "Anakin's master is Obi-Wan Kenobi, and Qui-Gon Jinn was killed by Darth Maul.",
     },
     {
-        "user": "Can you explain what storage layer and architecture Aegis uses?",
-        "assistant": "Aegis uses a storage layer based on LSM-trees and a custom write-ahead log (WAL) for write efficiency and durability.",
+        "user": "What is the name of Anakin's twins, and who do they need protection from?",
+        "assistant": "Anakin's twins are Luke Skywalker and Leia Organa, and they were hidden to protect them from Darth Vader and Emperor Palpatine.",
     },
     {
-        "user": "Who is starting the project and what is its name?",
-        "assistant": "Jeff is starting the project, and its name is Project Aegis.",
+        "user": "Who did Anakin Skywalker become after turning to the dark side, and who does he serve?",
+        "assistant": "Anakin Skywalker became Darth Vader and served Emperor Palpatine.",
     },
     {
-        "user": "Summarize the database project we are working on.",
-        "assistant": "Project Aegis is a distributed graph database started by Jeff, built in Rust for performance and memory safety. It features a storage layer with LSM-trees, a custom WAL, and is scheduled for launch in October 2026.",
+        "user": "Summarize the story of Anakin Skywalker and his family from the first six movies.",
+        "assistant": "Anakin Skywalker, discovered on Tatooine as a slave with high midi-chlorians, was trained by Obi-Wan Kenobi. He turned to the dark side to become Darth Vader under Emperor Palpatine. His twins, Luke and Leia, were hidden. Luke trained with Yoda on Dagobah and later redeemed his father Anakin, who defeated Palpatine on the second Death Star.",
     }
 ]
 
 # Verification rules for the query turns (6-10, 0-indexed 5-9)
 VERIFICATION_RULES = {
     5: {
-        "keywords": ["october", "2026"],
-        "description": "Launch date (October 2026)"
+        "keywords": ["yoda", "dagobah"],
+        "description": "Luke's training location and teacher (Yoda & Dagobah)"
     },
     6: {
-        "keywords": ["rust"],
-        "description": "Programming language (Rust)"
+        "keywords": ["obi-wan", "maul"],
+        "description": "Anakin's master and Qui-Gon's killer (Obi-Wan & Darth Maul)"
     },
     7: {
-        "keywords": ["lsm", "wal"],
-        "description": "Storage (LSM-trees & WAL)"
+        "keywords": ["luke", "leia", "vader"],
+        "description": "Twins' names and threat (Luke, Leia & Vader)"
     },
     8: {
-        "keywords": ["jeff", "aegis"],
-        "description": "Founder & name (Jeff & Aegis)"
+        "keywords": ["vader", "palpatine"],
+        "description": "Dark side persona and master (Darth Vader & Emperor Palpatine)"
     },
     9: {
-        "keywords": ["aegis", "jeff", "rust", "lsm", "wal", "october", "2026"],
-        "description": "Entire project summary details"
+        "keywords": ["anakin", "vader", "luke", "leia", "yoda", "palpatine"],
+        "description": "Entire Star Wars saga summary details"
     }
 }
 
 KEYWORDS_LIST = [
-    "jeff", "aegis", "database", "performance", "rust", "storage", "lsm", "wal",
-    "launch", "october", "2026", "language", "who", "starting", "name", "summarize"
+    "anakin", "skywalker", "tatooine", "midi-chlorians", "obi-wan", "kenobi", "qui-gon", "jinn",
+    "maul", "vader", "palpatine", "luke", "leia", "yoda", "dagobah", "death", "star", "emperor"
 ]
 
 
@@ -203,8 +203,23 @@ def get_client(live_mode: bool):
         return genai.Client(api_key=api_key)
     return None
 
-def embed(client, text: str, live_mode: bool) -> np.ndarray:
-    if live_mode and client:
+_local_embedder = None
+
+def get_local_embedding(text: str) -> np.ndarray:
+    global _local_embedder
+    if _local_embedder is None:
+        from sentence_transformers import SentenceTransformer
+        _local_embedder = SentenceTransformer("all-MiniLM-L6-v2")
+    emb = _local_embedder.encode(text)
+    return np.array(emb, dtype=np.float32)
+
+def embed(client, text: str, live_mode: bool, local_embed: bool = False) -> np.ndarray:
+    if local_embed:
+        try:
+            return get_local_embedding(text)
+        except Exception as e:
+            print(f"{C.RED}Local Embedding failed: {e}. Using mock fallback.{C.END}")
+    elif live_mode and client:
         try:
             resp = client.models.embed_content(model=EMBED_MODEL, contents=text)
             return np.array(resp.embeddings[0].values, dtype=np.float32)
@@ -246,6 +261,7 @@ class BaselineState(TypedDict):
     messages: List[dict]
     response: str
     prompt_tokens: int
+    prompt: str
 
 def make_baseline_graph(client, live_mode: bool):
     workflow = StateGraph(BaselineState)
@@ -262,7 +278,6 @@ def make_baseline_graph(client, live_mode: bool):
 
         turn_idx = len(state.get("messages", [])) // 2
         response = get_response(client, prompt, turn_idx, live_mode)
-
         new_messages = list(state.get("messages", []))
         new_messages.append({"role": "user", "content": state["input"]})
         new_messages.append({"role": "assistant", "content": response})
@@ -270,7 +285,8 @@ def make_baseline_graph(client, live_mode: bool):
         return {
             "response": response,
             "messages": new_messages,
-            "prompt_tokens": tokens
+            "prompt_tokens": tokens,
+            "prompt": prompt
         }
 
     workflow.add_node("generate", generate_node)
@@ -285,31 +301,27 @@ def make_baseline_graph(client, live_mode: bool):
 
 class EpochDBState(TypedDict):
     input: str
+    messages: List[dict]
     context: str
     response: str
     prompt_tokens: int
+    prompt: str
 
-def make_epochdb_graph(db: EpochDB, client, live_mode: bool):
+def make_epochdb_graph(db: EpochDB, client, live_mode: bool, local_embed: bool = False):
     workflow = StateGraph(EpochDBState)
 
     def retrieve_node(state: EpochDBState):
         latest_input = state["input"]
-        q_emb = embed(client, latest_input, live_mode)
+        is_query = "?" in latest_input or any(latest_input.lower().startswith(w) for w in ["who", "what", "where", "explain", "summarize", "why", "how", "can you", "list"])
+        if not is_query:
+            return {"context": "No prior memory."}
 
-        q_entities = [
-            w.strip(".,?!")
-            for w in latest_input.split()
-            if w[0].isupper() or w.lower() in (
-                "aegis", "rust", "wal", "lsm", "project", "database", 
-                "starting", "name", "who", "creator", "storage", 
-                "architecture", "language", "build", "built", "uses", 
-                "launch", "date", "target", "year", "month", "summarize", "summary"
-            )
-        ]
+        q_emb = embed(client, latest_input, live_mode, local_embed)
+        q_entities = db.extract_entities(latest_input)
 
         results = db.recall(
             q_emb,
-            top_k=5,
+            top_k=8,
             expand_hops=2,
             query_entities=q_entities
         )
@@ -325,11 +337,18 @@ def make_epochdb_graph(db: EpochDB, client, live_mode: bool):
         latest_input = state["input"]
         context = state["context"]
 
+        history_str = ""
+        recent_msgs = state.get("messages", [])[-4:]  # Last 2 turns = 4 messages
+        for msg in recent_msgs:
+            role = "User" if msg["role"] == "user" else "Assistant"
+            history_str += f"{role}: {msg['content']}\n"
+
         prompt = (
             "You are a helpful AI assistant with perfect long-term memory powered by EpochDB.\n"
             "Answer the user's query using the retrieved context from long-term memory if relevant.\n\n"
             "Retrieved memory context:\n"
             f"{context}\n\n"
+            f"Conversation History:\n{history_str}"
             f"User: {latest_input}\n"
             "Assistant:"
         )
@@ -342,33 +361,48 @@ def make_epochdb_graph(db: EpochDB, client, live_mode: bool):
                 break
 
         response = get_response(client, prompt, turn_idx, live_mode)
-        return {"response": response, "prompt_tokens": tokens}
+
+        new_messages = list(state.get("messages", []))
+        new_messages.append({"role": "user", "content": latest_input})
+        new_messages.append({"role": "assistant", "content": response})
+
+        return {"response": response, "messages": new_messages, "prompt_tokens": tokens, "prompt": prompt}
 
     def store_node(state: EpochDBState):
         latest_input = state["input"]
         response = state["response"]
 
-        interaction = f"User: {latest_input}\nAgent: {response}"
-        emb = embed(client, interaction, live_mode)
+        emb = embed(client, latest_input, live_mode, local_embed)
 
         triples = []
         tl = latest_input.lower()
-        if "jeff" in tl:
-            triples.append(("user", "has_name", "Jeff"))
-            triples.append(("Jeff", "started", "Project Aegis"))
-        if "aegis" in tl:
-            triples.append(("user", "works_on", "Project Aegis"))
-            triples.append(("Project Aegis", "is_a", "database"))
-        if "rust" in tl:
-            triples.append(("Project Aegis", "built_with", "Rust"))
-        if "lsm" in tl:
-            triples.append(("Project Aegis", "uses_storage", "LSM-trees"))
-        if "wal" in tl:
-            triples.append(("Project Aegis", "uses_log", "WAL"))
-        if "launch" in tl or "2026" in tl:
-            triples.append(("Project Aegis", "launch_target", "October 2026"))
+        if "anakin" in tl or "skywalker" in tl:
+            triples.append(("Anakin Skywalker", "is_a", "Jedi"))
+            triples.append(("Anakin Skywalker", "originates_from", "Tatooine"))
+        if "obi-wan" in tl or "kenobi" in tl:
+            triples.append(("Obi-Wan Kenobi", "trains", "Anakin Skywalker"))
+        if "qui-gon" in tl:
+            triples.append(("Qui-Gon Jinn", "discovered", "Anakin Skywalker"))
+        if "maul" in tl:
+            triples.append(("Darth Maul", "killed", "Qui-Gon Jinn"))
+        if "dark side" in tl or "vader" in tl:
+            triples.append(("Anakin Skywalker", "becomes", "Darth Vader"))
+            triples.append(("Darth Vader", "serves", "Emperor Palpatine"))
+        if "twins" in tl or "leia" in tl or "luke" in tl:
+            triples.append(("Anakin Skywalker", "has_child", "Luke Skywalker"))
+            triples.append(("Anakin Skywalker", "has_child", "Leia Organa"))
+            triples.append(("Luke Skywalker", "is_twin_of", "Leia Organa"))
+            if "protect" in tl:
+                triples.append(("Luke Skywalker", "needs_protection_from", "Darth Vader"))
+                triples.append(("Leia Organa", "needs_protection_from", "Darth Vader"))
+        if "yoda" in tl or "dagobah" in tl:
+            triples.append(("Yoda", "trains", "Luke Skywalker"))
+            triples.append(("Luke Skywalker", "trained_on", "Dagobah"))
+        if "death star" in tl or "redeem" in tl:
+            triples.append(("Luke Skywalker", "redeems", "Anakin Skywalker"))
+            triples.append(("Anakin Skywalker", "defeats", "Emperor Palpatine"))
 
-        db.add_memory(payload=interaction, embedding=emb, triples=triples)
+        db.add_memory(payload=latest_input, embedding=emb, triples=triples)
         return {}
 
     workflow.add_node("retrieve", retrieve_node)
@@ -386,68 +420,104 @@ def make_epochdb_graph(db: EpochDB, client, live_mode: bool):
 
 # ── 3. Juno + EpochDB ────────────────────────────────────────────────────────
 
-async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live_mode: bool) -> Tuple[int, str]:
+async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live_mode: bool, local_embed: bool = False) -> Tuple[int, str, str]:
     """Simulate a Juno agent turn using EpochBlackboard and ContextTiler, returning prompt tokens & response."""
     active_concepts = []
     ql = query.lower()
-    if "jeff" in ql or "aegis" in ql:
-        active_concepts.append("global:concept:Aegis")
-    if "rust" in ql:
-        active_concepts.append("global:concept:Rust")
-    if "lsm" in ql:
-        active_concepts.append("global:concept:LSM")
-    if "wal" in ql:
-        active_concepts.append("global:concept:WAL")
-    if "launch" in ql or "2026" in ql:
-        active_concepts.append("global:concept:launch")
+    if "anakin" in ql or ("skywalker" in ql and "luke" not in ql) or "vader" in ql or "family" in ql:
+        active_concepts.append("global:concept:Anakin")
+    if "obi-wan" in ql or "kenobi" in ql or ("master" in ql and "anakin" in ql):
+        active_concepts.append("global:concept:ObiWan")
+    if "luke" in ql or "leia" in ql or "twins" in ql or "protection" in ql:
+        active_concepts.append("global:concept:Luke")
+    if "yoda" in ql or "dagobah" in ql or "train" in ql or "teacher" in ql:
+        active_concepts.append("global:concept:Yoda")
+    if "palpatine" in ql or "emperor" in ql or "dark side" in ql or "serve" in ql:
+        active_concepts.append("global:concept:Palpatine")
+    if "maul" in ql or "qui-gon" in ql or "killed" in ql:
+        active_concepts.append("global:concept:Maul")
 
     if not active_concepts:
-        active_concepts.append("global:concept:Aegis")
+        active_concepts.append("global:concept:Anakin")
 
     nodes = []
     edges = []
     visited_nodes = set()
+    visited_edges = set()
     lineage = LineageContext(
         triggering_event_id=f"EV-turn-{turn_idx}",
         agent_name="JunoAgent",
         rationale="Retrieval for chat context",
     )
 
-    for concept_id in active_concepts:
-        try:
-            sub = await board.get_subgraph(concept_id, max_depth=1)
-            for n in sub.get("nodes", []):
-                nid = n["id"]
-                if n.get("label") == "ChatFragment":
-                    continue
-                if nid not in visited_nodes:
-                    visited_nodes.add(nid)
-                    nodes.append(n)
-            for e in sub.get("edges", []):
-                if "chat" in e.get("source", "").lower() or "chat" in e.get("target", "").lower():
-                    continue
-                edges.append(e)
-        except KeyError:
-            pass
+    is_query = "?" in query or any(query.lower().startswith(w) for w in ["who", "what", "where", "explain", "summarize", "why", "how", "can you", "list"])
 
-    recent_chats = []
-    for offset in [2, 1]:
-        prev_idx = turn_idx - offset
-        if prev_idx >= 0:
-            cid = f"global:chat:msg_{prev_idx}"
-            node_info = board._node_registry.get(cid)
-            if node_info:
-                recent_chats.append(node_info)
+    if is_query:
+        depth = 2 if "summarize" in query.lower() else 1
+        for concept_id in active_concepts:
+            try:
+                sub = await board.get_subgraph(concept_id, max_depth=depth)
+                for n in sub.get("nodes", []):
+                    nid = n["id"]
+                    if n.get("label") == "ChatFragment":
+                        continue
+                    if nid not in visited_nodes:
+                        visited_nodes.add(nid)
+                        nodes.append(n)
+                for e in sub.get("edges", []):
+                    if "chat" in e.get("source", "").lower() or "chat" in e.get("target", "").lower():
+                        continue
+                    edge_key = (e.get("source"), e.get("target"), e.get("type"))
+                    if edge_key not in visited_edges:
+                        visited_edges.add(edge_key)
+                        edges.append(e)
+            except KeyError:
+                pass
 
-    for c_node in recent_chats:
-        if c_node["id"] not in visited_nodes:
-            visited_nodes.add(c_node["id"])
-            nodes.append(c_node)
+        recent_chats = []
+        for offset in [2, 1]:
+            prev_idx = turn_idx - offset
+            if prev_idx >= 0:
+                cid = f"global:chat:msg_{prev_idx}"
+                node_info = board._node_registry.get(cid)
+                if node_info:
+                    recent_chats.append(node_info)
 
-    serialized_context = ContextTiler.serialize_subgraph_to_markdown({
-        "nodes": nodes,
-        "edges": edges
-    })
+        for c_node in recent_chats:
+            if c_node["id"] not in visited_nodes:
+                visited_nodes.add(c_node["id"])
+                nodes.append(c_node)
+
+        context_parts = []
+        concept_facts = []
+        is_summary = "summarize" in ql
+        for n in nodes:
+            nid = n["id"]
+            props = n.get("properties", {})
+            text = props.get("text", "")
+            if text:
+                name = nid.split(":")[-1]
+                is_active = nid in active_concepts
+                is_mentioned = name.lower() in ql or any(part.lower() in ql for part in name.replace("-", " ").split() if len(part) > 3)
+                if is_summary or is_active or is_mentioned or "chat" in nid.lower():
+                    concept_facts.append(f"- {name}: {text}")
+        if concept_facts:
+            context_parts.append("Blackboard Facts:")
+            context_parts.extend(concept_facts)
+
+        relations = []
+        for e in edges:
+            src = e.get("source", "").split(":")[-1]
+            tgt = e.get("target", "").split(":")[-1]
+            etype = e.get("type", "")
+            relations.append(f"- {src} {etype} {tgt}")
+        if relations:
+            context_parts.append("\nBlackboard Relationships:")
+            context_parts.extend(relations)
+
+        serialized_context = "\n".join(context_parts)
+    else:
+        serialized_context = ""
 
     prompt = (
         "You are a helpful AI assistant with perfect memory powered by Juno.\n"
@@ -459,7 +529,7 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
     tokens = count_tokens(prompt)
     response = get_response(client, prompt, turn_idx, live_mode)
 
-    vec = embed(client, query, live_mode)
+    vec = embed(client, query, live_mode, local_embed)
     juno_vec = list(vec)
 
     for concept_id in active_concepts:
@@ -490,53 +560,61 @@ async def run_juno_turn(board: Any, client: Any, query: str, turn_idx: int, live
         prev_chat_id = f"global:chat:msg_{turn_idx-1}"
         await board.write_edge(prev_chat_id, chat_id, "next_turn", {}, lineage)
 
-    if "jeff" in ql:
+    if "anakin" in ql or "skywalker" in ql or "vader" in ql:
         await board.write_node(
-            node_id="global:concept:Jeff",
+            node_id="global:concept:Anakin",
             label="Concept",
-            properties={"text": "Jeff is starting the Aegis project"},
+            properties={"text": "Anakin Skywalker is a Jedi who turned to the dark side and became Darth Vader"},
             vector=juno_vec,
             lineage=lineage
         )
-        await board.write_edge("global:concept:Aegis", "global:concept:Jeff", "started_by", {}, lineage)
-    if "rust" in ql:
+    if "obi-wan" in ql or "kenobi" in ql:
         await board.write_node(
-            node_id="global:concept:Rust",
+            node_id="global:concept:ObiWan",
             label="Concept",
-            properties={"text": "Aegis database is built with Rust for performance and safety"},
+            properties={"text": "Obi-Wan Kenobi is Anakin's Jedi master"},
             vector=juno_vec,
             lineage=lineage
         )
-        await board.write_edge("global:concept:Aegis", "global:concept:Rust", "built_with", {}, lineage)
-    if "lsm" in ql:
+        await board.write_edge("global:concept:Anakin", "global:concept:ObiWan", "trained_by", {}, lineage)
+    if "luke" in ql or "leia" in ql or "twins" in ql:
         await board.write_node(
-            node_id="global:concept:LSM",
+            node_id="global:concept:Luke",
             label="Concept",
-            properties={"text": "Aegis storage layer uses LSM-trees"},
+            properties={"text": "Luke and Leia are Anakin's twin children, hidden to protect them from Darth Vader and the Emperor"},
             vector=juno_vec,
             lineage=lineage
         )
-        await board.write_edge("global:concept:Aegis", "global:concept:LSM", "uses_storage", {}, lineage)
-    if "wal" in ql:
+        await board.write_edge("global:concept:Anakin", "global:concept:Luke", "has_child", {}, lineage)
+    if "yoda" in ql or "dagobah" in ql:
         await board.write_node(
-            node_id="global:concept:WAL",
+            node_id="global:concept:Yoda",
             label="Concept",
-            properties={"text": "Aegis storage layer uses a custom write-ahead log (WAL)"},
+            properties={"text": "Yoda is the grand Jedi master who trains Luke on Dagobah"},
             vector=juno_vec,
             lineage=lineage
         )
-        await board.write_edge("global:concept:Aegis", "global:concept:WAL", "uses_log", {}, lineage)
-    if "launch" in ql or "2026" in ql:
+        await board.write_edge("global:concept:Luke", "global:concept:Yoda", "trained_by", {}, lineage)
+    if "palpatine" in ql or "emperor" in ql:
         await board.write_node(
-            node_id="global:concept:launch",
+            node_id="global:concept:Palpatine",
             label="Concept",
-            properties={"text": "Project Aegis is targeting a launch date of October 2026"},
+            properties={"text": "Emperor Palpatine is the Sith Lord whom Darth Vader serves"},
             vector=juno_vec,
             lineage=lineage
         )
-        await board.write_edge("global:concept:Aegis", "global:concept:launch", "launch_target", {}, lineage)
+        await board.write_edge("global:concept:Anakin", "global:concept:Palpatine", "serves", {}, lineage)
+    if "maul" in ql or "qui-gon" in ql:
+        await board.write_node(
+            node_id="global:concept:Maul",
+            label="Concept",
+            properties={"text": "Darth Maul is a Sith who killed Qui-Gon Jinn, who had discovered Anakin"},
+            vector=juno_vec,
+            lineage=lineage
+        )
+        await board.write_edge("global:concept:Anakin", "global:concept:Maul", "associated_with", {}, lineage)
 
-    return tokens, response
+    return tokens, response, prompt
 
 
 # ── ASCII Chart Drawing ───────────────────────────────────────────────────────
@@ -642,9 +720,11 @@ def save_report(results: List[dict], total_base: int, total_ep: int, total_jn: i
 # ── Main Runner ───────────────────────────────────────────────────────────────
 
 async def main():
+    global DIM, EMBED_MODEL
     parser = argparse.ArgumentParser(description="LangGraph vs EpochDB vs Juno Token Benchmark")
     parser.add_argument("--live", action="store_true", help="Run with real Gemini API embeddings & generation")
     parser.add_argument("--keep", action="store_true", help="Keep the benchmark storage directories after execution")
+    parser.add_argument("--local-embed", action="store_true", help="Use a local tiny model (all-MiniLM-L6-v2) for embeddings instead of Gemini")
     
     default_juno_path = os.path.abspath(
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "juno_framework")
@@ -656,6 +736,11 @@ async def main():
         help="Path to the juno_framework directory"
     )
     args = parser.parse_args()
+
+    local_embed = args.local_embed
+    if local_embed:
+        DIM = 384
+        EMBED_MODEL = "all-MiniLM-L6-v2"
 
     import_juno(args.juno_path)
     if not HAS_JUNO:
@@ -671,15 +756,18 @@ async def main():
     if live_mode:
         client = get_client(live_mode)
         if client:
-            try:
-                # Perform a lightweight request to validate the key
-                client.models.embed_content(model=EMBED_MODEL, contents="test")
-                print(f"{C.GREEN}✓ Live Gemini API key validated successfully.{C.END}")
-            except Exception as e:
-                print(f"{C.RED}Error validating Gemini API key: {e}{C.END}")
-                print(f"{C.YELLOW}Falling back to Mock Mode...{C.END}")
-                live_mode = False
-                client = None
+            if not local_embed:
+                try:
+                    # Perform a lightweight request to validate the key
+                    client.models.embed_content(model=EMBED_MODEL, contents="test")
+                    print(f"{C.GREEN}✓ Live Gemini API key validated successfully.{C.END}")
+                except Exception as e:
+                    print(f"{C.RED}Error validating Gemini API key: {e}{C.END}")
+                    print(f"{C.YELLOW}Falling back to Mock Mode...{C.END}")
+                    live_mode = False
+                    client = None
+            else:
+                print(f"{C.GREEN}✓ Live Gemini API client initialized (embeddings will run locally via {EMBED_MODEL}).{C.END}")
         else:
             live_mode = False
             print(f"{C.YELLOW}Falling back to Mock Mode...{C.END}")
@@ -687,16 +775,17 @@ async def main():
 
     print(C.header("EpochDB vs. LangGraph vs. Juno Token & Accuracy Benchmark"))
     print(f"  Mode:            {'LIVE (Gemini API)' if live_mode else 'MOCK (Keyword-Seeded)'}")
+    print(f"  Embeddings:      {'Local (all-MiniLM-L6-v2)' if local_embed else 'Gemini API'}")
     print(f"  Token Estimator: {'tiktoken (cl100k_base)' if HAS_TIKTOKEN else 'Character count / 4'}")
     print(f"  Storage Dir:     {STORAGE_DIR}")
     print(f"  Juno Dir:        {JUNO_DIR}")
     print("━" * 80)
 
-    db = EpochDB(storage_dir=STORAGE_DIR, dim=DIM, model=f"google:{EMBED_MODEL}" if live_mode else None)
-    juno_board = EpochBlackboard(storage_dir=JUNO_DIR, dim=DIM, model=f"google:{EMBED_MODEL}" if live_mode else None)
+    db = EpochDB(storage_dir=STORAGE_DIR, dim=DIM, model=f"google:{EMBED_MODEL}" if (live_mode and not local_embed) else None)
+    juno_board = EpochBlackboard(storage_dir=JUNO_DIR, dim=DIM, model=f"google:{EMBED_MODEL}" if (live_mode and not local_embed) else None)
 
     baseline_app = make_baseline_graph(client, live_mode)
-    epochdb_app = make_epochdb_graph(db, client, live_mode)
+    epochdb_app = make_epochdb_graph(db, client, live_mode, local_embed)
 
     baseline_thread = {"configurable": {"thread_id": "baseline_bench"}}
     epochdb_thread = {"configurable": {"thread_id": "epochdb_bench"}}
@@ -727,23 +816,16 @@ async def main():
         ep_ok, ep_missing = verify_response(ep_response, idx)
 
         # 3. Run Juno + EpochDB
-        jn_tokens, jn_response = await run_juno_turn(juno_board, client, query, idx, live_mode)
+        jn_tokens, jn_response, jn_prompt = await run_juno_turn(juno_board, client, query, idx, live_mode, local_embed)
         jn_ok, jn_missing = verify_response(jn_response, idx)
 
         b_status = f"{C.GREEN}✓{C.END}" if base_ok else f"{C.RED}✗ (Missing: {base_missing}){C.END}"
         e_status = f"{C.GREEN}✓{C.END}" if ep_ok else f"{C.RED}✗ (Missing: {ep_missing}){C.END}"
         j_status = f"{C.GREEN}✓{C.END}" if jn_ok else f"{C.RED}✗ (Missing: {jn_missing}){C.END}"
 
-        base_resp_clean = base_response.replace('\n', '\n         │            ')
-        ep_resp_clean = ep_response.replace('\n', '\n         │            ')
-        jn_resp_clean = jn_response.replace('\n', '\n         │            ')
-
         print(f"         ├─ Standard: {base_tokens:5,} tokens | Accuracy: {b_status}")
-        print(f"         │            Ans: {base_resp_clean}")
         print(f"         ├─ EpochDB:  {ep_tokens:5,} tokens | Accuracy: {e_status}  ({C.GREEN}-{((base_tokens - ep_tokens)/base_tokens*100):.1f}%{C.END})")
-        print(f"         │            Ans: {ep_resp_clean}")
-        print(f"         ├─ Juno:     {jn_tokens:5,} tokens | Accuracy: {j_status}  ({C.CYAN}-{((base_tokens - jn_tokens)/base_tokens*100):.1f}%{C.END})")
-        print(f"         │            Ans: {jn_resp_clean}")
+        print(f"         └─ Juno:     {jn_tokens:5,} tokens | Accuracy: {j_status}  ({C.CYAN}-{((base_tokens - jn_tokens)/base_tokens*100):.1f}%{C.END})")
 
         results.append({
             "turn": turn_num,
