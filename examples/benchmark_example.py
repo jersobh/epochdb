@@ -1,7 +1,7 @@
 """
-benchmark_example.py — EpochDB v0.5.0 Hardened Benchmark Demonstration
+benchmark_example.py — EpochDB v0.6.1 Hardened Benchmark Demonstration
 ======================================================================
-This script demonstrates the "Hardened" v0.5.0 capabilities:
+This script demonstrates the "Hardened" v0.6.1 capabilities:
 1. Triple-Hop Mastery: Alice -> Aurora -> Helios -> Dr. Julian Chen (Relational).
 2. Multi-Pivot Precision: 4 conflicting updates for Project Artemis (State).
 3. Semantic Noise Rejection: Distinguishing Artemis signal from Apollo noise (Cold).
@@ -187,7 +187,7 @@ def main():
     app = create_agent(db, client)
     thread = {"configurable": {"thread_id": "hardened_thread"}}
 
-    print(C.header("EpochDB v0.5.0 — HARDENED MASTER CLASS"))
+    print(C.header("EpochDB v0.6.1 — HARDENED MASTER CLASS"))
 
     # 1. Triple-Hop Mastery
     print(C.subheader("1.000 RELATIONAL REASONING (3-HOP)"))
