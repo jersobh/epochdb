@@ -2,6 +2,11 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [0.7.2] - 2026-05-25
+### Fixed
+- **Rate Limit Handling**: Added exponential backoff retry logic for Gemini embedding calls to handle rate limiting gracefully.
+
+
 ## [0.7.1] - 2026-05-25
 ### Fixed
 - **Rebranding Fixes**: Unified duplicate `recall_by_entity` implementations into a single thread-safe, batch-loading method.
