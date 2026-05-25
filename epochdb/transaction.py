@@ -2,6 +2,7 @@ import os
 import json
 import logging
 from typing import Dict, Any
+from datetime import datetime, date
 
 logger = logging.getLogger(__name__)
 
@@ -95,10 +96,19 @@ class WriteAheadLog:
         self._file = open(self.wal_path, "a")
 
     def append(self, operation: str, data: Dict[str, Any]):
-        record = json.dumps({"op": operation, "data": data})
+        def json_serial(obj):
+            if isinstance(obj, (datetime, date)):
+                return obj.isoformat()
+            raise TypeError(f"Type {type(obj)} not serializable")
+
+        record = json.dumps({"op": operation, "data": data}, default=json_serial)
         self._file.write(record + "\n")
         self._file.flush()
         os.fsync(self._file.fileno())
+
+    def log_delete(self, atom_id: str):
+        """Log a persistent delete operation."""
+        self.append("DELETE", {"id": atom_id})
 
     def replay(self) -> list:
         """
@@ -120,9 +130,11 @@ class WriteAheadLog:
                         op = record.get("op")
                         if op == "ADD":
                             pending.append(record["data"])
-                        elif op in ("COMMIT", "ROLLBACK"):
-                            # COMMIT → these atoms are safe; clear pending set.
-                            # ROLLBACK → discard pending atoms.
+                        elif op == "COMMIT":
+                            # COMMIT means the atoms are safe to restore to Hot Tier.
+                            pass
+                        elif op == "ROLLBACK":
+                            # ROLLBACK means discard the pending atoms.
                             pending = []
                     except json.JSONDecodeError:
                         continue

@@ -1,10 +1,13 @@
 import numpy as np
-from typing import List, Dict, Set
-from .atom import UnifiedMemoryAtom
+from typing import List, Dict, Set, Optional, Any, Tuple
+from .atom import UnifiedMemoryAtom, PayloadType, SeriesPoint
 from .hot_tier import HotTier
 from .cold_tier import ColdTier
 from .kg_manager import KGManager
+from .units import UnitRegistry
+from .quantitative_index import ScalarIndex
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +24,7 @@ class RetrievalManager:
         self.hot_tier = hot_tier
         self.cold_tier = cold_tier
         self.kg_manager = kg_manager
+        self.unit_registry = UnitRegistry()
 
         # Track access-count increments for cold-tier atoms in memory.
         # These are applied on top of the stored access_count when an atom
@@ -42,12 +46,110 @@ class RetrievalManager:
             return a
         return None
 
+    def query_range(self, field: str, min_val: float, max_val: float, unit: Optional[str] = None, fork_id: Optional[str] = None) -> List[UnifiedMemoryAtom]:
+        """Range query over scalars with interval arithmetic and unit normalization."""
+        q_min, q_max = min_val, max_val
+        if unit:
+            # Normalize query bounds to base unit if necessary
+            if field in self.hot_tier.quant_index.scalar_indices:
+                base_unit = self.hot_tier.quant_index.scalar_indices[field].base_unit
+                if not self.unit_registry.compatible(unit, base_unit):
+                    raise ValueError(
+                        f"Dimensional mismatch: query unit '{unit}' is incompatible "
+                        f"with field '{field}' base unit '{base_unit}'"
+                    )
+                q_min = self.unit_registry.convert(min_val, unit, base_unit)
+                q_max = self.unit_registry.convert(max_val, unit, base_unit)
+        
+        # 1. Hot Tier Query
+        atom_ids = self.hot_tier.quant_index.scalar_indices.get(field, ScalarIndex("")).query_overlap(q_min, q_max)
+        
+        # 2. Fork Overlay (Shadow Values)
+        if fork_id:
+            fork_hits = self.hot_tier.quant_index.fork_manager.query_overlap(fork_id, field, q_min, q_max)
+            atom_ids = list(set(atom_ids + fork_hits))
+
+        results = []
+        for aid in atom_ids:
+            atom = self.hot_tier.atoms.get(aid)
+            if not atom:
+                # Fallback to cold tier search (simplified)
+                pass
+            
+            if atom:
+                if unit and atom.payload_type == PayloadType.SCALAR:
+                    if not self.unit_registry.compatible(atom.payload.unit, unit):
+                        continue
+                results.append(atom)
+        return results
+
+    def query_temporal(self, atom_id: str, timestamp: float, fork_id: Optional[str] = None) -> Optional[Dict[str, float]]:
+        """Interpolate series value and propagate uncertainty via RSS."""
+        atom = self._fetch_atom_by_id(atom_id, "active")
+        if not atom or atom.payload_type != PayloadType.SERIES:
+            return None
+        
+        points = atom.payload.points
+        if fork_id:
+            points = self.hot_tier.quant_index.fork_manager.resolve_series_points(
+                fork_id, atom.triples[0][0], atom.triples[0][1], points
+            )
+        
+        points = sorted(points, key=lambda p: p.timestamp)
+        if not points: return None
+
+        if timestamp <= points[0].timestamp: 
+            return {"value": points[0].value, "uncertainty": max(points[0].uncertainty_low, points[0].uncertainty_high)}
+        if timestamp >= points[-1].timestamp: 
+            return {"value": points[-1].value, "uncertainty": max(points[-1].uncertainty_low, points[-1].uncertainty_high)}
+
+        for i in range(len(points) - 1):
+            p1, p2 = points[i], points[i+1]
+            if p1.timestamp <= timestamp <= p2.timestamp:
+                t_total = p2.timestamp - p1.timestamp
+                w2 = (timestamp - p1.timestamp) / t_total
+                w1 = 1.0 - w2
+                val = w1 * p1.value + w2 * p2.value
+                u1 = max(p1.uncertainty_low, p1.uncertainty_high)
+                u2 = max(p2.uncertainty_low, p2.uncertainty_high)
+                uncertainty = np.sqrt((w1 * u1)**2 + (w2 * u2)**2)
+                return {"value": float(val), "uncertainty": float(uncertainty)}
+        return None
+
+    def query_aggregate(self, atom_id: str, window: str, t_start: float, t_end: float) -> List[SeriesPoint]:
+        """Hit pre-materialized aggregated views."""
+        return self.hot_tier.quant_index.series_index.query_aggregate(atom_id, window, t_start, t_end)
+
+    def check_feasibility(self, constraint_ids: List[str], state: Dict[str, float], fork_id: Optional[str] = None) -> bool:
+        """Check if a set of constraints is feasible against a given state, including fork state."""
+        constraints = []
+        merged_state = state.copy()
+        
+        # Inject fork shadow values into state
+        if fork_id and fork_id in self.hot_tier.quant_index.fork_manager.shadow_scalars:
+            for field, shadow_atoms in self.hot_tier.quant_index.fork_manager.shadow_scalars[fork_id].items():
+                if shadow_atoms:
+                    # Take the latest shadow value by timestamp
+                    latest = max(shadow_atoms.items(), key=lambda x: x[1][3])
+                    merged_state[field] = latest[1][0]  # the value
+
+        for cid in constraint_ids:
+            atom = self._fetch_atom_by_id(cid, "active")
+            if atom and atom.payload_type == PayloadType.CONSTRAINT:
+                constraints.append(atom.payload)
+        
+        return self.hot_tier.quant_index.constraint_checker.check_feasibility(
+            constraints, merged_state, index_manager=self.hot_tier.quant_index
+        )
+
     def search(
         self,
         query_emb: np.ndarray,
         top_k: int = 5,
         expand_hops: int = 1,
         query_entities: List[str] = None,
+        payload_type: Optional[PayloadType] = None,
+        fork_id: Optional[str] = None,
     ) -> List[UnifiedMemoryAtom]:
         query_entities = set(query_entities) if query_entities else set()
         # Freeze the original query intent before graph expansion contaminates it.
@@ -55,6 +157,10 @@ class RetrievalManager:
         original_query_entities = frozenset(query_entities)
         # Candidates: {atom_id: (atom, semantic_similarity)}
         candidates: Dict[str, tuple] = {}
+
+        # --- Quantitative Intent Extraction ---
+        # "high power usage" -> (field="power_usage", op=">", threshold=learned/heuristic)
+        quant_intent = self._extract_quant_intent(original_query_entities)
 
         # --- 1. Semantic Hook: Hot Tier ---
         # We fetch a larger pool to allow RRF and Topic Locking to function.
@@ -100,19 +206,24 @@ class RetrievalManager:
                 for ep_id, a_ids in epoch_to_atom_ids.items():
                     atoms = self.cold_tier.load_atom_metadata(ep_id, a_ids)
                     for a in atoms:
-                        sim = np.dot(a.embedding, query_emb) / (
-                            np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
-                        )
-                        candidates[a.id] = (a, float(sim))
+                        sim = 0.0
+                        if query_emb.any() and a.embedding.any():
+                            sim = np.dot(a.embedding, query_emb) / (
+                                np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
+                            )
+                        # Entity match gets a baseline boost to ensure retrieval
+                        candidates[a.id] = (a, float(sim) + 0.5)
                 
                 # Also check Hot Tier
                 for a_id, _ in associations:
                     if a_id in self.hot_tier.atoms and a_id not in candidates:
                         a = self.hot_tier.atoms[a_id]
-                        sim = np.dot(a.embedding, query_emb) / (
-                            np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
-                        )
-                        candidates[a.id] = (a, float(sim))
+                        sim = 0.0
+                        if query_emb.any() and a.embedding.any():
+                            sim = np.dot(a.embedding, query_emb) / (
+                                np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
+                            )
+                        candidates[a.id] = (a, float(sim) + 0.5)
 
         # --- Keyword-based Entity Extraction (Auto-Expansion) ---
         # If no explicit entities are passed, we scan the query embedding surface 
@@ -123,28 +234,47 @@ class RetrievalManager:
             # an unpopulated set. For now, we rely on the expansion set below.
             pass
 
-        # --- 1b. Semantic Hook: Cold Tier (Fast Indexed Search) ---
+        # --- 1b. Semantic Hook: Cold Tier (Parallel Indexed Search) ---
         epochs = self.cold_tier.get_all_epochs()
-        for epoch in epochs:
-            # We fetch a larger pool to ensure corrections are captured for RRF fusion.
-            cold_hits = self.cold_tier.search_epoch(epoch, query_emb, top_k=top_k * 10)
-            for atom in cold_hits:
-                if len(atom.embedding) != len(query_emb):
-                    continue
-                    
-                sim = np.dot(atom.embedding, query_emb) / (
-                    np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10
-                )
-                atom.access_count += self._access_deltas.get(atom.id, 0)
-                candidates[atom.id] = (atom, float(sim))
+        if epochs:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(epochs))) as executor:
+                # Launch all epoch searches in parallel
+                future_to_epoch = {
+                    executor.submit(self.cold_tier.search_epoch, epoch, query_emb, top_k * 10): epoch 
+                    for epoch in epochs
+                }
+                
+                for future in concurrent.futures.as_completed(future_to_epoch):
+                    try:
+                        cold_hits = future.result()
+                        for atom in cold_hits:
+                            if len(atom.embedding) != len(query_emb):
+                                continue
+                                
+                            sim = np.dot(atom.embedding, query_emb) / (
+                                np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10
+                            )
+                            atom.access_count += self._access_deltas.get(atom.id, 0)
+                            candidates[atom.id] = (atom, float(sim))
+                    except Exception as e:
+                        logger.error(f"Search failed for epoch {future_to_epoch[future]}: {e}")
 
         # --- 2. Relational Expansion via Global KG ---
         # This doubles as our Entity Extraction: if a candidate atom mentions an entity 
         # that was also in our query (heuristically), it gets a Factor C boost.
         if expand_hops > 0:
-            expansion_set = set(candidates.keys())
+            # Sort candidates by similarity score and expand only the most promising ones
+            sorted_candidates = sorted(candidates.items(), key=lambda x: x[1][1], reverse=True)
+            expansion_limit = max(top_k, 50)
+            expansion_set = {k for k, _ in sorted_candidates[:expansion_limit]}
+            
             for _ in range(expand_hops):
                 new_neighbors: Set[str] = set()
+                
+                # Gather all unique entities to query associations for in a single batch
+                all_entities_to_expand = set()
+                atom_entities_map = {}
                 for a_id in expansion_set:
                     atom_data = candidates.get(a_id)
                     if not atom_data:
@@ -154,9 +284,16 @@ class RetrievalManager:
                     for subj, pred, obj in atom.triples:
                         entities.add(subj)
                         entities.add(obj)
-
+                    atom_entities_map[a_id] = entities
+                    all_entities_to_expand.update(entities)
+                
+                # Batch fetch associations for all entities at once
+                associations_batch = self.kg_manager.get_associations_batch(list(all_entities_to_expand))
+                
+                for a_id in expansion_set:
+                    entities = atom_entities_map.get(a_id, set())
                     for ent in entities:
-                        associations = self.kg_manager.get_associations(ent)
+                        associations = associations_batch.get(ent)
                         if associations:
                             # Process neighbors
                             epoch_to_atom_ids: Dict[str, List[str]] = {}
@@ -171,18 +308,38 @@ class RetrievalManager:
                                     query_entities.add(ent)
                             
                             for epoch_id, atom_ids in epoch_to_atom_ids.items():
-                                n_atoms = self.cold_tier.load_atom_metadata(epoch_id, atom_ids)
+                                n_atoms = []
+                                missing_atom_ids = []
+                                for aid in atom_ids:
+                                    if aid in self.hot_tier.atoms:
+                                        n_atoms.append(self.hot_tier.atoms[aid])
+                                    else:
+                                        missing_atom_ids.append(aid)
+                                
+                                if missing_atom_ids:
+                                    n_atoms.extend(self.cold_tier.load_atom_metadata(epoch_id, missing_atom_ids))
+
                                 for n_atom in n_atoms:
                                     if len(n_atom.embedding) == len(query_emb):
                                          sim = np.dot(n_atom.embedding, query_emb) / (
                                             np.linalg.norm(n_atom.embedding) * np.linalg.norm(query_emb) + 1e-10
-                                        )
+                                         )
                                          # AUTO-BOOST: if we reached this atom via a KG hop, 
                                          # it should count as an entity match for Factor C.
                                          query_entities.add(ent)
                                          new_neighbors.add(n_atom.id)
                                          candidates[n_atom.id] = (n_atom, float(sim))
-                expansion_set = new_neighbors
+                
+                # For next hop, only expand the newly found neighbors up to expansion_limit
+                if len(new_neighbors) > expansion_limit:
+                    sorted_neighbors = sorted(
+                        new_neighbors,
+                        key=lambda x: candidates[x][1] if x in candidates else 0.0,
+                        reverse=True
+                    )
+                    expansion_set = set(sorted_neighbors[:expansion_limit])
+                else:
+                    expansion_set = new_neighbors
 
         # --- 3. Payload Deduplication ---
         all_candidates = list(candidates.values())
@@ -201,19 +358,47 @@ class RetrievalManager:
         # --- 4. 4-Way Fusion with Topic Locking & Supersession ---
         K = 60  # Industry standard for RRF stability
 
-        # 1. Supersession Detection (State-Aware)
+        # 1. Supersession Detection (State-Aware & Typed)
         superseded_ids: Set[str] = set()
-        # Sort by (created_at, id) for deterministic recency resolution even on time collisions
+        # Sort by (created_at, id) for deterministic recency resolution
         recency_sorted = sorted(unique_results, key=lambda x: (x[0].created_at, x[0].id), reverse=True)
-        active_states: Dict[Tuple[str, str], str] = {}
+        
+        # Track active states per (subject, predicate)
+        active_states: Dict[Tuple[str, str], UnifiedMemoryAtom] = {}
+        
         for atom, _ in recency_sorted:
             for s, p, o in atom.triples:
                 state_key = (str(s).lower(), str(p).lower())
+                
                 if state_key in active_states:
-                    if active_states[state_key] != atom.id:
-                        superseded_ids.add(atom.id)
+                    active_atom = active_states[state_key]
+                    
+                    # RULE: Scalars supersede if values differ or if newer
+                    if atom.payload_type == PayloadType.SCALAR and active_atom.payload_type == PayloadType.SCALAR:
+                        if atom.payload.value != active_atom.payload.value:
+                            superseded_ids.add(atom.id)
+                        else:
+                            # Same value, newer one wins
+                            pass # active_atom is already newer due to sort order
+                    
+                    # RULE: Series APPEND (No supersession here, they merge during materialization)
+                    elif atom.payload_type == PayloadType.SERIES and active_atom.payload_type == PayloadType.SERIES:
+                        # Series atoms complement each other
+                        pass
+                    
+                    # RULE: Constraints evaluate subsumption
+                    elif atom.payload_type == PayloadType.CONSTRAINT and active_atom.payload_type == PayloadType.CONSTRAINT:
+                        # If active_atom (newer) is broader than atom (older), atom is superseded
+                        # For now, a simple 'same expression' check or placeholder for Z3 subsumption
+                        if atom.payload.expression == active_atom.payload.expression:
+                            superseded_ids.add(atom.id)
+                    
+                    # DEFAULT: Recency-based supersession for Text or mixed types
+                    else:
+                        if active_atom.id != atom.id:
+                            superseded_ids.add(atom.id)
                 else:
-                    active_states[state_key] = atom.id
+                    active_states[state_key] = atom
 
         # 2. Base RRF Ranks
         unique_results.sort(key=lambda x: x[1], reverse=True)
@@ -236,38 +421,54 @@ class RetrievalManager:
         else:
             unique_results.sort(key=lambda x: get_overlap(x[0]), reverse=True)
             entity_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
+        # 3. Quantitative Relevance Rank (The 5th Signal)
+        def get_quant_score(atom: UnifiedMemoryAtom) -> float:
+            if not quant_intent or atom.payload_type not in [PayloadType.SCALAR, PayloadType.SERIES]:
+                return 0.0
+            
+            field, op, val = quant_intent
+            # Check if atom has this field in triples
+            has_field = any(p.lower() == field.lower() for _, p, _ in atom.triples)
+            if not has_field: return 0.0
+            
+            atom_val = 0.0
+            if atom.payload_type == PayloadType.SCALAR:
+                atom_val = atom.payload.value
+            elif atom.payload_type == PayloadType.SERIES:
+                # Use last value for series relevance
+                if atom.payload.points: atom_val = atom.payload.points[-1].value
+            
+            if op == ">" and atom_val > val: return 1.0
+            if op == "<" and atom_val < val: return 1.0
+            return 0.0
+
+        unique_results.sort(key=lambda x: get_quant_score(x[0]), reverse=True)
+        quant_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
 
         # 3. Discrete Topic Lock (Consolidated Saliency)
         def get_topic_boost(atom: UnifiedMemoryAtom) -> float:
-            atom_elements = set()
-            for s, p, o in atom.triples:
-                atom_elements.add(str(s).lower())
-                atom_elements.add(str(o).lower())
-                atom_elements.add(p.lower())
-            
             boost = 0.0
             # Use original_query_entities — NOT the expansion-contaminated query_entities
             for qe in original_query_entities:
                 qe_l = qe.lower()
-                is_broad = len(self.kg_manager.get_associations(qe)) > 5
+                is_broad = len(self.kg_manager.get_associations(qe)) > 10 # Increased threshold for 'broad'
                 
-                # We reward matches on THE PRECISE INTENT (The Predicate)
-                # or Narrow Entities (Subject/Object).
                 for s, p, o in atom.triples:
                     p_l = p.lower()
-                    # 1. Exact Predicate Match (Intent Alignment)
+                    # 1. Exact Predicate Match (Intent Alignment) - High Signal
                     if qe_l == p_l:
-                        boost = max(boost, 20.0) # Nuclear Boost
+                        boost += 15.0
                         break
                     
-                    # 2. Fuzzy Predicate/Entity Match (Prefix/Narrow)
-                    qe_root = qe_l[:4]
+                    # 2. Narrow Entity Match (Subject/Object)
                     if qe_l in (str(s).lower(), str(o).lower()) and not is_broad:
-                        boost = max(boost, 20.0)
+                        boost += 10.0
                         break
                     
-                    if qe_l in p_l or (len(qe_root) >= 4 and qe_root in p_l):
-                        boost = max(boost, 20.0)
+                    # 3. Fuzzy/Partial Match - Low Signal
+                    qe_root = qe_l[:4]
+                    if len(qe_root) >= 4 and qe_root in p_l:
+                        boost += 5.0
                         break
             
             return boost
@@ -280,9 +481,10 @@ class RetrievalManager:
             
             # Weighted reciprocal ranks
             score = (
-                2.0 / (60 + s_rank)    # Semantic (2x weight)
-                + 1.0 / (60 + r_rank)  # Recency
-                + 1.0 / (60 + e_rank)  # Multi-hop Context
+                3.0 / (K + s_rank)    # Semantic (3x weight)
+                + 1.0 / (K + r_rank)  # Recency
+                + 1.0 / (K + e_rank)  # Multi-hop Context
+                + 2.0 / (K + quant_ranks.get(atom_id, 1000)) # Quantitative (2x weight)
             )
             
             # Topic Lock (Precision Booster)
@@ -297,19 +499,23 @@ class RetrievalManager:
 
         # Pre-calculate scores to detect 'Signal' presence
         scored_results = []
-        has_signal = False
         for atom, sim in unique_results:
             score = multi_rrf_score(atom.id, atom)
-            if score >= 20.0:
-                has_signal = True
             scored_results.append((atom, score))
         
-        # Signal-to-Noise Filter: if Signal exists, demote Noise aggressively
-        if has_signal:
+        # Dynamic Signal-to-Noise Filter: demote background noise ONLY when a clear signal is found.
+        if scored_results:
+            max_score = max(s[1] for s in scored_results)
+            # Signal threshold: requires at least one strong boost or multiple weak ones
+            threshold = max(15.0, max_score * 0.8)
+            
             final_scored = []
+            has_strong_signal = max_score >= threshold
+            
             for atom, score in scored_results:
-                if score < 20.0:
-                    score *= 0.0000001
+                if has_strong_signal and score < threshold:
+                    # Soft demotion (0.1x) to keep context available but deprioritized
+                    score *= 0.1
                 final_scored.append((atom, score))
             scored_results = final_scored
 
@@ -318,7 +524,29 @@ class RetrievalManager:
 
         # --- 5. Materialise Results & Update Access Counts ---
         final_atoms = []
-        for atom, _ in unique_results[:top_k]:
+        # Merge series points if multiple series atoms for the same entity are present
+        merged_series: Dict[Tuple[str, str], UnifiedMemoryAtom] = {}
+
+        for atom, score in unique_results[:top_k]:
+            if atom.id in superseded_ids:
+                continue
+
+            if atom.payload_type == PayloadType.SERIES:
+                for s, p, o in atom.triples:
+                    key = (str(s).lower(), str(p).lower())
+                    if key in merged_series:
+                        # Merge points into the existing 'master' atom for this recall result
+                        existing = merged_series[key]
+                        # Create a new payload with combined points
+                        all_points = existing.payload.points + atom.payload.points
+                        # Deduplicate by timestamp
+                        unique_points = {p.timestamp: p for p in all_points}.values()
+                        existing.payload.points = sorted(list(unique_points), key=lambda x: x.timestamp)
+                        # We don't add this atom to final_atoms again
+                        continue
+                    else:
+                        merged_series[key] = atom
+            
             atom.access_count += 1
             # Track delta for cold-tier atoms so subsequent loads reflect it.
             if atom.id not in self.hot_tier.atoms:
@@ -328,3 +556,19 @@ class RetrievalManager:
             final_atoms.append(atom)
 
         return final_atoms
+
+    def _extract_quant_intent(self, entities: Set[str]) -> Optional[Tuple[str, str, float]]:
+        """Heuristic to detect quantitative intent from query entities."""
+        # Example: if "temperature" and "high" are in entities
+        # This is a placeholder for a more sophisticated LLM-based extraction.
+        ent_l = {e.lower() for e in entities}
+        if "temperature" in ent_l or "temp" in ent_l:
+            field = "temperature"
+            if "high" in ent_l: return (field, ">", 25.0)
+            if "low" in ent_l: return (field, "<", 15.0)
+        
+        if "power" in ent_l or "usage" in ent_l:
+            field = "power_usage"
+            if "high" in ent_l: return (field, ">", 200.0)
+        
+        return None
