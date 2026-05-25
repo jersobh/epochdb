@@ -34,3 +34,4 @@ env/
 dist/
 build/
 *.egg-info/
+.test_debug_analytics/
