@@ -174,7 +174,7 @@ class EpochDB:
         payload: Any,
         embedding: np.ndarray,
         triples: List[tuple] = None,
-        atom_id: Optional[str] = None
+        atom_id: Optional[str] = None,
     ) -> str:
         """Store a new memory atom with its embedding and optional KG triples."""
         if triples is None:
@@ -192,24 +192,16 @@ class EpochDB:
         ts = max(time.time(), self._last_timestamp + 0.000001)
         self._last_timestamp = ts
 
-        # Detect payload type
-        ptype = PayloadType.TEXT
-        if isinstance(payload, ScalarPayload):
-            ptype = PayloadType.SCALAR
-        elif isinstance(payload, SeriesPayload):
-            ptype = PayloadType.SERIES
-        elif isinstance(payload, ConstraintPayload):
-            ptype = PayloadType.CONSTRAINT
-
-        atom = UnifiedMemoryAtom(
-            id=atom_id if atom_id else str(uuid.uuid4()),
-            payload=payload,
-            payload_type=ptype,
-            embedding=embedding,
-            triples=triples,
-            epoch_id=self.current_epoch_id,
-            created_at=ts,
-        )
+        atom_kwargs = {
+            "payload": payload,
+            "embedding": embedding,
+            "triples": triples,
+            "epoch_id": self.current_epoch_id,
+            "created_at": ts,
+        }
+        if atom_id is not None:
+            atom_kwargs["id"] = atom_id
+        atom = UnifiedMemoryAtom(**atom_kwargs)
 
         # ACID Multi-Index Transaction.
         with MultiIndexTransaction(self.wal, self.hot_tier) as tx:
@@ -364,11 +356,8 @@ class EpochDB:
         # --- Pass 1: Subjects/Objects must appear in the query ---
         for ent in candidates:
             ent_l = ent.lower()
-            if ent_l in blacklist:
-                continue
-            
-            # 1. Exact Substring Match
-            if ent_l in clean_text:
+            ent_parts = [p for p in ent_l.replace("-", " ").split() if len(p) > 3]
+            if ent_l in clean_text or any(p in words for p in ent_parts):
                 found.add(ent)
                 continue
 
@@ -411,24 +400,55 @@ class EpochDB:
         """Lazy-load the embedding model on first use."""
         if self._embedder is None:
             if self._model_name is None:
-                raise ValueError("No embedding model configured.")
-            
+                raise ValueError(
+                    "No embedding model configured. Pass model='all-MiniLM-L6-v2' "
+                    "(or any SentenceTransformer model name) to EpochDB.__init__."
+                )
             if self._model_name.startswith("google:"):
-                # Use Google GenAI embeddings with local Ollama fallback
-                model_id = self._model_name.split(":", 1)[1]
-                google_emb = GoogleEmbedder(model_id, dim=self.dim)
-                # Fallback to local Ollama (all-minilm)
-                ollama_emb = OllamaEmbedder(model_name="all-minilm", dim=self.dim)
-                self._embedder = FallbackEmbedder(primary=google_emb, secondary=ollama_emb)
+                class GeminiEmbedder:
+                    def __init__(self, model_name: str):
+                        self.model = model_name.split("google:", 1)[-1]
+                        import os
+                        api_key = os.environ.get("GEMINI_API_KEY")
+                        if not api_key:
+                            raise ValueError("GEMINI_API_KEY environment variable is required for Gemini embeddings.")
+                        from google import genai
+                        self.client = genai.Client(api_key=api_key)
+
+                    def encode(self, sentences, normalize_embeddings=True):
+                        import numpy as np
+                        if isinstance(sentences, str):
+                            input_list = [sentences]
+                            is_single = True
+                        else:
+                            input_list = list(sentences)
+                            is_single = False
+
+                        results = []
+                        for text in input_list:
+                            resp = self.client.models.embed_content(model=self.model, contents=text)
+                            val = resp.embeddings[0].values
+                            vec = np.array(val, dtype=np.float32)
+                            if normalize_embeddings:
+                                norm = np.linalg.norm(vec)
+                                if norm > 1e-10:
+                                    vec /= norm
+                            results.append(vec)
+
+                        if is_single:
+                            return results[0]
+                        return np.array(results, dtype=np.float32)
+
+                self._embedder = GeminiEmbedder(self._model_name)
             else:
-                # Fallback to SentenceTransformer
                 try:
                     from sentence_transformers import SentenceTransformer
                 except ImportError:
-                    raise ImportError("sentence-transformers is required for local embeddings.")
+                    raise ImportError(
+                        "sentence-transformers is required for auto-embedding. "
+                        "Install it with: pip install epochdb[embeddings]"
+                    )
                 self._embedder = SentenceTransformer(self._model_name)
-        return self._embedder
-
         return self._embedder
 
     def remember(self, text: str, triples: List[tuple] = None) -> str:
