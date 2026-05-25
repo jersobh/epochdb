@@ -392,6 +392,34 @@ class EpochDB:
 
         return [f for f in found if f.lower() not in blacklist]
 
+    def recall_by_entity(self, entity: str) -> List[UnifiedMemoryAtom]:
+        """Retrieve all memory atoms associated with a given entity."""
+        with self._internal_lock:
+            associations = self.kg_manager.get_associations(entity)
+            if not associations:
+                return []
+
+            epoch_to_atom_ids = {}
+            results = []
+            hot_ids = set()
+
+            for atom_id, epoch_id in associations:
+                if atom_id in self.hot_tier.atoms:
+                    results.append(self.hot_tier.atoms[atom_id])
+                    hot_ids.add(atom_id)
+                else:
+                    if epoch_id not in epoch_to_atom_ids:
+                        epoch_to_atom_ids[epoch_id] = []
+                    epoch_to_atom_ids[epoch_id].append(atom_id)
+
+            for epoch_id, atom_ids in epoch_to_atom_ids.items():
+                atoms = self.cold_tier.load_atom_metadata(epoch_id, atom_ids)
+                for a in atoms:
+                    if a.id not in hot_ids:
+                        results.append(a)
+
+            return results
+
     # -------------------------------------------------------------------------
     # Convenience: Auto-Embedding
     # -------------------------------------------------------------------------
@@ -522,26 +550,6 @@ class EpochDB:
                 expand_hops=expand_hops,
                 query_entities=query_entities,
             )
-    def recall_by_entity(self, entity: str) -> List[UnifiedMemoryAtom]:
-        """
-        Deterministic retrieval: fetch all atoms associated with a specific entity in the KG.
-        """
-        with self._internal_lock:
-            associations = self.kg_manager.get_associations(entity)
-            atom_ids = [a[0] for a in associations]
-            # Fetch from cold/hot tier
-            atoms = []
-            for aid in atom_ids:
-                atom = self.hot_tier.atoms.get(aid)
-                if not atom:
-                    # Look up in cold tier by iterating associations for epoch
-                    for a_id, ep_id in associations:
-                        if a_id == aid:
-                            atom = self.retriever._fetch_atom_by_id(a_id, ep_id)
-                            break
-                if atom:
-                    atoms.append(atom)
-            return atoms
 
     # -------------------------------------------------------------------------
     # Branching

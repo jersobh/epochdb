@@ -3,7 +3,7 @@ import os
 import logging
 import time
 import threading
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -77,15 +77,14 @@ class KGManager:
                 logger.error(f"Failed to query SQLite KG for entity '{entity}': {e}")
                 return []
 
-    def get_associations_batch(self, entities: List[str]) -> dict:
-        """Retrieve [atom_id, epoch_id] pairs for a batch of entities in a single query."""
+    def get_associations_batch(self, entities: List[str]) -> Dict[str, List[List[str]]]:
+        """Retrieve all [atom_id, epoch_id] pairs for a batch of entities."""
         if not entities:
             return {}
         with self._lock:
             try:
                 cursor = self._conn.cursor()
-                result = {}
-                # Query in batches of 500 to avoid SQLite limits
+                results = {}
                 for i in range(0, len(entities), 500):
                     chunk = entities[i:i+500]
                     placeholders = ",".join("?" for _ in chunk)
@@ -93,15 +92,17 @@ class KGManager:
                         f"SELECT entity, atom_id, epoch_id FROM kg_index WHERE entity IN ({placeholders})",
                         chunk
                     )
-                    for row in cursor.fetchall():
-                        ent, atom_id, epoch_id = row
-                        if ent not in result:
-                            result[ent] = []
-                        result[ent].append((atom_id, epoch_id))
-                return result
+                    for ent, atom_id, epoch_id in cursor.fetchall():
+                        if ent not in results:
+                            results[ent] = []
+                        results[ent].append([atom_id, epoch_id])
+                for ent in entities:
+                    if ent not in results:
+                        results[ent] = []
+                return results
             except Exception as e:
-                logger.error(f"Failed to query SQLite KG for batch of {len(entities)} entities: {e}")
-                return {}
+                logger.error(f"Failed to query SQLite KG for batch of entities: {e}")
+                return {ent: [] for ent in entities}
 
     def get_all_entities(self) -> List[str]:
         """Returns all distinct entities in the KG."""
