@@ -2,9 +2,6 @@
 
 **EpochDB** is a high-performance, state-aware memory engine designed for lossless, tiered storage and multi-hop relational reasoning. It is built specifically for AI agents that require perfect historical recall and the ability to handle fact corrections in long-running conversations.
 
-> [!IMPORTANT]
-> **v0.6.2 Release**: Now delivering a **perfect 1.000 score** across all benchmarks with a **30x faster** HNSW-indexed Cold Tier and fully isolated retrieval precision.
-
 ---
 
 ## Why EpochDB?
