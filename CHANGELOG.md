@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo-epoch.png" alt="EpochDB Logo" width="120" />
+</p>
+
 # Changelog
 
 All notable changes to EpochDB will be documented in this file.

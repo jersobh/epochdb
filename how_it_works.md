@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo-epoch.png" alt="EpochDB Logo" width="120" />
+</p>
+
 # How EpochDB Works
 
 EpochDB is an **Agentic Memory Engine** that treats long-term memory as a tiered hierarchy. It moves beyond flat vector stores by integrating relational reasoning and atomic state management directly into the persistence layer.
