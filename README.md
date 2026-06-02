@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo-epoch.png" alt="EpochDB Logo" width="180" />
+</p>
+
 # EpochDB — Agentic Memory Engine
 
 **EpochDB** is a high-performance, state-aware memory engine designed for lossless, tiered storage and multi-hop relational reasoning. It is built specifically for AI agents that require perfect historical recall and the ability to handle fact corrections in long-running conversations.
