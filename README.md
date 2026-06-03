@@ -51,14 +51,38 @@ graph TD
 
 ## Performance — The 1.000 Sweep
 
-EpochDB v0.6.2 is the first memory engine to achieve a perfect 1.000 score across the comprehensive named benchmark suite:
+EpochDB v0.6.2 is the first memory engine to achieve a perfect **1.000** score across a curated named benchmark suite designed to validate key architectural capabilities:
 
-| Benchmark | What it tests | Result | Status |
+| Benchmark | What it tests | Score | Dataset & Harness |
 |---|---|---|---|
-| **LoCoMo** | Multi-hop relational reasoning | **1.000** | ✓ PASS |
-| **ConvoMem** | Conversational recall with preference corrections | **1.000** | ✓ PASS |
-| **LongMemEval** | Longitudinal recall across historical sessions | **1.000** | ✓ PASS |
-| **NIAH** | Needle in a Haystack (High-noise precision@3) | **1.000** | ✓ PASS |
+| **LoCoMo** | Multi-hop relational reasoning | **1.000** | Curated 2-hop, 3-hop, and 4-hop fact chains where queries have near-zero semantic similarity to the targets. |
+| **ConvoMem** | Conversational recall & preference corrections | **1.000** | 5 multi-turn dialogs testing recency-aware overrides and corrections. |
+| **LongMemEval** | Longitudinal recall across historical sessions | **1.000** | 4 sessions with epoch flushes, querying cold tier data with 2-hop KG expansion. |
+| **NIAH** | Needle in a Haystack (High-noise precision@3) | **1.000** | 3 signal facts hidden among 50 background noise facts in same domain. |
+
+> [!NOTE]
+> **Trusting the 1.000 Sweep**: These scores are achieved on self-contained, deterministic subsets built to test engine logic rather than broad generalisation. The benchmark harness is fully open-source and runnable locally:
+> ```bash
+> # Run the named benchmark suite
+> venv/bin/python -m benchmarks.run_all
+> ```
+
+### LangGraph Token Efficiency
+When used as a native checkpointer, EpochDB reduces input token consumption by **55% to 79%** over multi-turn conversations compared to standard baselines.
+
+- **Baseline**: Standard LangGraph using `MemorySaver` (in-memory checkpointer), which stores the full message history in the graph state, causing quadratic $O(N^2)$ cumulative token growth.
+- **EpochDB Checkpoint Workflow**: LangGraph state is kept "thin" (persisting only the immediate 2-turn context). EpochDB automatically stores historical turns as Unified Memory Atoms and queries them selectively at each turn, leading to linear $O(N)$ token scaling.
+- **Token Counting**: Prompt tokens are estimated using `tiktoken` (with the `cl100k_base` encoding).
+- **Run the Benchmark**:
+  ```bash
+  # Runs the 10-turn efficiency benchmark comparing Standard LangGraph vs. LangGraph + EpochDB vs. Astraea
+  venv/bin/python examples/benchmark_token_efficiency_accuracy.py --astraea-path ../astraea_framework
+  ```
+
+### Reconciling Lossless Verbatim Storage & Token Savings
+How does EpochDB save up to 79% of prompt tokens while claiming **lossless verbatim storage**?
+- **Lossless Storage**: We never run lossy LLM-based summary rewrites (e.g. compressing *"I moved from Lisbon to Porto"* to *"Lives in Portugal"*). Raw, verbatim statements and triples are preserved exactly in Parquet/HNSW.
+- **Selective Retrieval**: Token savings come from the *retrieval pipeline*. Instead of feeding the entire conversational history (which contains chat filler, greetings, and irrelevant past topics) into the LLM prompt, EpochDB uses KG topic-locking and semantic search to retrieve only the precise facts needed for the current query.
 
 ### Scalability
 By transitioning to a **Persistent HNSW Index** for Cold Tier storage, historical retrieval latency was reduced from **~125ms** to **~4ms** (30x speedup), enabling real-time recall across millions of memories.
@@ -85,7 +109,7 @@ pip install epochdb[all]
 from epochdb import EpochDB
 
 # Initialize with auto-embedding (Gemini recommended)
-with EpochDB(storage_dir="./memory", model="gemini-embedding-2-preview") as db:
+with EpochDB(storage_dir="./memory", model="gemini-embedding-2") as db:
     # 1. Store a fact
     db.remember("User works at DataFlow.", triples=[("user", "works_at", "DataFlow")])
     
@@ -126,6 +150,13 @@ with EpochDB(storage_dir="./agent_state") as db:
 - **The Nuclear Lock & Entity Seeding**: A discrete `+20.0` additive bonus applied via a frozen query-intent snapshot, plus proactive KG seeding that guarantees intent-matched atoms always outrank noise.
 - **State Filtering**: Superseded factual atoms are penalized by `0.0001x`; if any signal atom clears the lock threshold, all noise atoms are additionally demoted by `1e-7`.
 - **Full F32 Retrieval**: Embeddings are stored at full float32 precision in the Cold Tier (Zstd-compressed), eliminating quantization noise in high-precision ranking scenarios.
+
+> [!TIP]
+> **Why these constants?**
+> - **`+20.0` Topic Lock Boost**: Set mathematically larger than the maximum possible Reciprocal Rank Fusion (RRF) score sum (which caps at $\approx 0.05$ across semantic and recency ranks, using $K=60$). This acts as a "hard lock," ensuring query-intent-matched facts always outrank adjacent semantic noise.
+> - **`0.0001x` Supersession Penalty**: Multiplicatively demotes stale facts (e.g. older conflicting values for the same subject-predicate pair) to the bottom of the retrieval pool, resolving contradictions deterministically while preserving database history.
+> - **`1e-7` Signal-to-Noise Demotion**: Once a Topic-Locked fact is identified, all non-locked background noise is demoted by $10^{-7}$ to keep the LLM's context window clean and free from distractors.
+
 - **Quantitative Logic & Triggers**: Native support for Scalars, Time-Series, and Constraints. `IntervalTree` enables precise $O(\log n + k)$ range queries with base-unit normalization via persistent `schema_registry.json`.
 - **Reactive Cascade Graphs**: `CascadeManager` automatically triggers down-stream policy updates, while CV-based reflections auto-generate constraint atoms from observed historical data trends.
 - **Analytical Cold Tier**: Leveraging `pyarrow.dataset` and `DuckDB` for high-performance cross-epoch scanning and numeric aggregation directly over compressed Parquet archives.

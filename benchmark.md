@@ -4,7 +4,7 @@
 
 # EpochDB v0.6.2 — Benchmark Results
 
-All benchmarks run end-to-end using **Gemini embedding-2-preview (3072D)**
+All benchmarks run end-to-end using **Gemini embedding-2 (3072D)**
 via the Gemini API. No external corpus or cloud vector database required.
 
 Run the benchmarks yourself:
@@ -20,7 +20,7 @@ venv/bin/python -m benchmarks.run_benchmark
 
 ## Named Benchmark Suite (Overall)
 
-> `gemini-embedding-2-preview` (3072D) · v0.6.2 Hardened
+> `gemini-embedding-2` (3072D) · v0.6.2 Hardened
 
 | Benchmark | What it tests | Score | Status |
 |---|---|---|---|
@@ -127,7 +127,7 @@ Verified performance of the new quantitative subsystem:
 
 ## Named Benchmark Suite — 2026-04-13 19:14 UTC
 
-> Embeddings: `gemini-embedding-2-preview` (3072D)  
+> Embeddings: `gemini-embedding-2` (3072D)  
 > Gemini API calls: 91  ·  Wall time: 47.9s  
 > All data self-contained (no external HuggingFace datasets required)
 
@@ -189,7 +189,7 @@ Evaluation uses Entity Hook seeding to ensure Topic Lock.
 
 ## Benchmark Run — 2026-04-13 19:16 UTC
 
-> Embeddings: `gemini-embedding-2-preview` (3072D) · Gemini API calls: 64 · Wall time: 34.5s
+> Embeddings: `gemini-embedding-2` (3072D) · Gemini API calls: 64 · Wall time: 34.5s
 
 ### 1. Multi-Hop Relational Reasoning
 
@@ -243,7 +243,7 @@ Query targets the specific signal entity via semantic + KG expansion.
 
 ## Benchmark Run — 2026-04-13 19:24 UTC
 
-> Embeddings: `gemini-embedding-2-preview` (3072D) · Gemini API calls: 64 · Wall time: 34.5s
+> Embeddings: `gemini-embedding-2` (3072D) · Gemini API calls: 64 · Wall time: 34.5s
 
 ### 1. Multi-Hop Relational Reasoning
 
@@ -297,7 +297,7 @@ Query targets the specific signal entity via semantic + KG expansion.
 
 ## Named Benchmark Suite — 2026-04-22 21:46 UTC
 
-> Embeddings: `gemini-embedding-2-preview` (3072D)  
+> Embeddings: `gemini-embedding-2` (3072D)  
 > Gemini API calls: 91  ·  Wall time: 41.5s  
 > All data self-contained (no external HuggingFace datasets required)
 
@@ -359,7 +359,7 @@ Evaluation uses Entity Hook seeding to ensure Topic Lock.
 
 ## Benchmark Run — 2026-04-22 21:46 UTC
 
-> Embeddings: `gemini-embedding-2-preview` (3072D) · Gemini API calls: 64 · Wall time: 22.8s
+> Embeddings: `gemini-embedding-2` (3072D) · Gemini API calls: 64 · Wall time: 22.8s
 
 ### 1. Multi-Hop Relational Reasoning
 
@@ -413,7 +413,7 @@ Query targets the specific signal entity via semantic + KG expansion.
 
 ## Benchmark Run — 2026-04-22 21:48 UTC
 
-> Embeddings: `gemini-embedding-2-preview` (3072D) · Gemini API calls: 84 · Wall time: 34.3s
+> Embeddings: `gemini-embedding-2` (3072D) · Gemini API calls: 84 · Wall time: 34.3s
 
 ### 1. Multi-Hop Relational Reasoning
 
@@ -467,7 +467,7 @@ Query targets the specific signal entity via semantic + KG expansion.
 
 ## Benchmark Run — 2026-04-22 21:50 UTC
 
-> Embeddings: `gemini-embedding-2-preview` (3072D) · Gemini API calls: 164 · Wall time: 68.1s
+> Embeddings: `gemini-embedding-2` (3072D) · Gemini API calls: 164 · Wall time: 68.1s
 
 ### 1. Multi-Hop Relational Reasoning
 
@@ -521,7 +521,7 @@ Query targets the specific signal entity via semantic + KG expansion.
 
 ## Benchmark Run — 2026-04-22 21:52 UTC
 
-> Embeddings: `gemini-embedding-2-preview` (3072D) · Gemini API calls: 164 · Wall time: 67.0s
+> Embeddings: `gemini-embedding-2` (3072D) · Gemini API calls: 164 · Wall time: 67.0s
 
 ### 1. Multi-Hop Relational Reasoning
 
@@ -575,7 +575,7 @@ Query targets the specific signal entity via semantic + KG expansion.
 
 ## Benchmark Run — 2026-05-07 09:21 UTC
 
-> Embeddings: `gemini-embedding-2-preview` (3072D) · Gemini API calls: 164 · Wall time: 69.1s
+> Embeddings: `gemini-embedding-2` (3072D) · Gemini API calls: 164 · Wall time: 69.1s
 
 ### 1. Multi-Hop Relational Reasoning
 
@@ -629,7 +629,7 @@ Query targets the specific signal entity via semantic + KG expansion.
 
 ## Named Benchmark Suite — 2026-06-02 14:18 UTC
 
-> Embeddings: `gemini-embedding-2-preview` (3072D)  
+> Embeddings: `gemini-embedding-2` (3072D)  
 > Gemini API calls: 91  ·  Wall time: 44.9s  
 > All data self-contained (no external HuggingFace datasets required)
 

@@ -1,7 +1,7 @@
 """
 demo.py — EpochDB v0.6.1 Self-Contained Walkthrough
 =====================================================
-Demonstrates all core features using Gemini embeddings (gemini-embedding-2-preview)
+Demonstrates all core features using Gemini embeddings (gemini-embedding-2)
 and the new auto-embedding convenience API.
 
 Usage:
@@ -48,7 +48,7 @@ def hr(title=""):
 
 # ── Gemini Embedder ─────────────────────────────────────────────────────────────
 class GeminiEmbedder:
-    MODEL = "gemini-embedding-2-preview"
+    MODEL = "gemini-embedding-2"
     DIM   = 3072
 
     def __init__(self, client):

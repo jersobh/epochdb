@@ -83,7 +83,7 @@ except ImportError:
 
 STORAGE_DIR = "./.epochdb_benchmark_langgraph"
 JUNO_DIR    = "./.juno_benchmark_temp"
-EMBED_MODEL = "gemini-embedding-2-preview"
+EMBED_MODEL = "gemini-embedding-2"
 GEN_MODEL   = "gemini-3-flash-preview"
 DIM         = 3072
 
@@ -204,19 +204,52 @@ def get_client(live_mode: bool):
 def embed(client, text: str, live_mode: bool) -> np.ndarray:
     """Return embedding vector (real or mock)."""
     if live_mode and client:
-        resp = client.models.embed_content(model=EMBED_MODEL, contents=text)
-        return np.array(resp.embeddings[0].values, dtype=np.float32)
+        import time
+        import random
+        max_retries = 6
+        base_delay = 1.0
+        for attempt in range(max_retries):
+            try:
+                resp = client.models.embed_content(model=EMBED_MODEL, contents=text)
+                return np.array(resp.embeddings[0].values, dtype=np.float32)
+            except Exception as e:
+                err_str = str(e)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "Resource exhausted" in err_str:
+                    if attempt == max_retries - 1:
+                        print(f"{C.RED}Live Embedding failed: Rate limit retry limit reached. Using mock fallback.{C.END}")
+                        break
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                    print(f"{C.YELLOW}Live Embedding: Rate limit hit (429). Retrying in {delay:.2f}s... (Attempt {attempt+1}/{max_retries}){C.END}")
+                    time.sleep(delay)
+                else:
+                    print(f"{C.RED}Live Embedding failed: {e}. Using mock fallback.{C.END}")
+                    break
     return get_mock_embedding(text)
 
 
 def get_response(client, prompt: str, turn_idx: int, live_mode: bool) -> str:
     """Generate assistant response (real or mock)."""
     if live_mode and client:
-        try:
-            resp = client.models.generate_content(model=GEN_MODEL, contents=prompt)
-            return resp.text.strip()
-        except Exception as e:
-            print(f"{C.RED}Live Generation failed: {e}. Using mock fallback.{C.END}")
+        import time
+        import random
+        max_retries = 6
+        base_delay = 1.0
+        for attempt in range(max_retries):
+            try:
+                resp = client.models.generate_content(model=GEN_MODEL, contents=prompt)
+                return resp.text.strip()
+            except Exception as e:
+                err_str = str(e)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "Resource exhausted" in err_str:
+                    if attempt == max_retries - 1:
+                        print(f"{C.RED}Live Generation failed: Rate limit retry limit reached. Using mock fallback.{C.END}")
+                        break
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                    print(f"{C.YELLOW}Live Generation: Rate limit hit (429). Retrying in {delay:.2f}s... (Attempt {attempt+1}/{max_retries}){C.END}")
+                    time.sleep(delay)
+                else:
+                    print(f"{C.RED}Live Generation failed: {e}. Using mock fallback.{C.END}")
+                    break
     return SCENARIO_TURNS[turn_idx]["assistant"]
 
 
