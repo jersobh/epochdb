@@ -9,7 +9,7 @@ Five focused benchmarks that prove EpochDB's unique capabilities:
   4. Storage Efficiency               — INT8 + Zstd compression ratio
   5. WAL Crash Recovery               — time and correctness of replay
 
-Embeddings: gemini-embedding-2-preview (3072D)
+Embeddings: gemini-embedding-2 (3072D)
 No external database required. No competitor comparison.
 
 Usage:
@@ -57,7 +57,7 @@ CY = "\033[96m"
 RD = "\033[91m"
 DM = "\033[2m"
 
-EMBED_MODEL = "gemini-embedding-2-preview"
+EMBED_MODEL = "gemini-embedding-2"
 GEN_MODEL   = "gemini-3-flash-preview"  # used by callers; kept here for reference
 DIM         = 3072
 

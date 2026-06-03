@@ -45,7 +45,7 @@ from epochdb import EpochDB
 from benchmarks import locomo, convomem, longmemeval, needle
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-EMBED_MODEL = "gemini-embedding-2-preview"
+EMBED_MODEL = "gemini-embedding-2"
 DIM         = 3072
 STORAGE_DIR = "./.epochdb_run_all"
 

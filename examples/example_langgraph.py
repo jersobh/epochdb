@@ -5,7 +5,7 @@ Demonstrates a stateful conversational agent that persists both:
   - Long-term associative memory  (EpochDB atoms + Knowledge Graph)
   - Short-term agentic state      (EpochDBCheckpointer → LangGraph threads)
 
-Embeddings: Gemini embedding-2-preview (3072D, local to your machine via API)
+Embeddings: Gemini embedding-2 (3072D, local to your machine via API)
 Generation: gemini-3-flash-preview
 Triple extraction: heuristic (replace with an LLM call in production)
 
@@ -44,7 +44,7 @@ class AgentState(TypedDict):
 
 # ── Gemini Helpers ─────────────────────────────────────────────────────────────
 
-EMBED_MODEL = "gemini-embedding-2-preview"
+EMBED_MODEL = "gemini-embedding-2"
 GEN_MODEL   = "gemini-3-flash-preview"
 DIM         = 3072
 
