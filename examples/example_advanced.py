@@ -7,7 +7,7 @@ Demonstrates:
   • access_count / saliency tracking across Hot and Cold tiers
   • EpochDBCheckpointer for LangGraph thread persistence
 
-Embeddings: Gemini embedding-2-preview (3072D)
+Embeddings: Gemini embedding-2 (3072D)
 Generation: rule-based (showcases retrieval quality without LLM costs)
 
 Usage:
@@ -47,7 +47,7 @@ class AgentState(TypedDict):
 
 # ── Gemini Embedder ────────────────────────────────────────────────────────────
 
-EMBED_MODEL = "gemini-embedding-2-preview"
+EMBED_MODEL = "gemini-embedding-2"
 GEN_MODEL   = "gemini-3-flash-preview"  # not used here; rule-based responder saves tokens
 DIM         = 3072
 

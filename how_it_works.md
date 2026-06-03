@@ -84,11 +84,19 @@ This is the "brain" of EpochDB. It combines four distinct signals using **Recipr
 | **Entities** | RRF Rank | Overlap with query entities (including expanded context). |
 | **Topic Lock** | `+20.0` Bonus | A "nuclear" additive bonus for atoms matching the **original** query intent. |
 
-#### Signal-to-Noise Filtering
-If any atom achieves the **Topic Lock** (score ≥ 20), all remaining "noise" atoms (those without the lock) are aggressively demoted by a factor of `1e-7`. This makes intent-matched facts mathematically unreachable by semantic noise.
+#### Signal-to-Noise Filtering & Constants Design
+The tuned constants used in the retrieval and filtering pipeline are designed based on mathematical bounds rather than fitting to specific benchmark data, ensuring they remain robust across different domains:
+- **Topic Lock Boost (`+20.0`)**: In a standard RRF implementation with constant $K=60$, the maximum possible score an atom can accumulate from the ranking signals (Semantic, Recency, Entities, and Quantitative ranks) is:
+  $$\text{Max RRF Score} = \sum \frac{w_i}{K + \text{rank}_i} \approx \frac{3}{60} + \frac{1}{60} + \frac{1}{60} + \frac{2}{60} \approx 0.117$$
+  By applying a discrete `+20.0` additive boost (or $+15.0$ / $+10.0$ depending on predicate alignment), we establish a "hard lock" that is orders of magnitude larger than any possible RRF combination. This guarantees that intent-matched facts and entity seeds are mathematically guaranteed to outrank semantically adjacent background noise.
+- **Signal-to-Noise Demotion (`1e-7`) / Soft Demotion (`0.1x`)**: When a Topic-Locked signal is found, background "noise" atoms are demoted (either by a multiplier of `1e-7` or a soft factor of `0.1x` depending on context). This forces background distractors down and preserves the prompt's context window.
+- **State-Aware Supersession (`0.0001x` multiplier)**:
+  EpochDB identifies "stale" facts by tracking Subject-Predicate pairs. Older atoms are penalized by a `0.0001x` multiplier, ensuring that if you tell the agent you moved from "Lisbon" to "Porto", the "Porto" atom always wins. Since $0.0001$ is far smaller than any standard RRF step, it effectively zeroes out the stale memory's relevance while leaving it in the verbatim history database.
 
-#### State-Aware Supersession
-EpochDB identifies "stale" facts by tracking Subject-Predicate pairs. Older atoms are penalized by a `0.0001x` multiplier, ensuring that if you tell the agent you moved from "Lisbon" to "Porto", the "Porto" atom always wins.
+#### Reconciling Lossless Verbatim Storage & Token Savings
+There is a clear distinction between how EpochDB stores memory and how it feeds it back to the agent:
+1. **Lossless Verbatim Storage (The DB)**: Unlike systems that summarize conversation histories via LLMs (which destructively discards details and nuance), EpochDB stores raw, verbatim texts and exact triples in its Parquet and HNSW indexes.
+2. **Selective Retrieval (The Context)**: Token savings (typically 55% to 79%) are achieved because we do not feed the entire raw conversational history into the LLM context. Instead, we query EpochDB to selectively retrieve only the **top-k relevant, Topic-Locked facts** related to the active query. The context size remains flat and linear $O(N)$ with conversation length, rather than growing quadratically $O(N^2)$ as it does with standard message checkpointers (e.g. `MemorySaver`).
 
 ---
 
