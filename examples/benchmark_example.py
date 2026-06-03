@@ -35,7 +35,7 @@ from epochdb.checkpointer import EpochDBCheckpointer
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 STORAGE_DIR = "./.epochdb_benchmark_demo"
-EMBED_MODEL = "gemini-embedding-2-preview"
+EMBED_MODEL = "gemini-embedding-2"
 GEN_MODEL   = "gemini-3-flash-preview"
 DIM         = 3072
 
