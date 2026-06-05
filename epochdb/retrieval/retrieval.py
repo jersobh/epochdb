@@ -1,11 +1,8 @@
 import numpy as np
 from typing import List, Dict, Set, Optional, Any, Tuple
-from .atom import UnifiedMemoryAtom, PayloadType, SeriesPoint
-from .hot_tier import HotTier
-from .cold_tier import ColdTier
-from .kg_manager import KGManager
-from .units import UnitRegistry
-from .quantitative_index import ScalarIndex
+from epochdb.core.atom import UnifiedMemoryAtom, PayloadType, SeriesPoint
+from epochdb.core.units import UnitRegistry
+from epochdb.retrieval.quantitative_index import ScalarIndex
 import logging
 import re
 
@@ -17,9 +14,9 @@ class RetrievalManager:
 
     def __init__(
         self,
-        hot_tier: HotTier,
-        cold_tier: ColdTier,
-        kg_manager: KGManager,
+        hot_tier: "HotTier",
+        cold_tier: "ColdTier",
+        kg_manager: "KGManager",
     ):
         self.hot_tier = hot_tier
         self.cold_tier = cold_tier
@@ -150,6 +147,7 @@ class RetrievalManager:
         query_entities: List[str] = None,
         payload_type: Optional[PayloadType] = None,
         fork_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[UnifiedMemoryAtom]:
         query_entities = set(query_entities) if query_entities else set()
         # Freeze the original query intent before graph expansion contaminates it.
@@ -347,6 +345,10 @@ class RetrievalManager:
         seen_payloads: Set[str] = set()
 
         for atom, sim in all_candidates:
+            if atom.metadata.get("_deleted"):
+                continue
+            if filters and not self.match_filters(atom.metadata, filters):
+                continue
             payload_key = str(atom.payload)
             if payload_key not in seen_payloads:
                 unique_results.append((atom, sim))
@@ -556,6 +558,40 @@ class RetrievalManager:
             final_atoms.append(atom)
 
         return final_atoms
+
+    def match_filters(self, metadata: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+        if not filters:
+            return True
+        if not metadata:
+            return False
+        for k, v in filters.items():
+            if k not in metadata:
+                return False
+            meta_val = metadata[k]
+            if isinstance(v, dict):
+                for op, val in v.items():
+                    if op == "$eq":
+                        if meta_val != val: return False
+                    elif op == "$ne":
+                        if meta_val == val: return False
+                    elif op == "$in":
+                        if meta_val not in val: return False
+                    elif op == "$nin":
+                        if meta_val in val: return False
+                    elif op == "$gt":
+                        if not (meta_val > val): return False
+                    elif op == "$gte":
+                        if not (meta_val >= val): return False
+                    elif op == "$lt":
+                        if not (meta_val < val): return False
+                    elif op == "$lte":
+                        if not (meta_val <= val): return False
+                    else:
+                        if meta_val != v: return False
+            else:
+                if meta_val != v:
+                    return False
+        return True
 
     def _extract_quant_intent(self, entities: Set[str]) -> Optional[Tuple[str, str, float]]:
         """Heuristic to detect quantitative intent from query entities."""
