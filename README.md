@@ -30,18 +30,19 @@ graph TD
 
     subgraph "Working Memory — RAM (Hot Tier)"
         Engine --> HNSW_H[HNSW Vector Index]
-        Engine --> WAL[ACID Write-Ahead Log]
+        Engine --> WAL[WAL: ACID Write-Ahead Log]
         Engine --> KG[Active Knowledge Graph]
     end
 
     subgraph "Historical Archive — Disk (Cold Tier)"
         HNSW_H -->|Async Flush| Parquet[(Parquet + F32 + Zstd)]
-        Parquet <--> HNSW_C[HNSW Index per Epoch]
-        HNSW_C <--> GEI[Global Entity Index]
+        Parquet --- HNSW_C[HNSW Index per Epoch]
+        HNSW_C --- GEI[Global Entity Index]
     end
 
     subgraph "Retrieval Pipeline"
-        HNSW_H & HNSW_C --> Pool[Candidate Pool]
+        HNSW_H --> Pool[Candidate Pool]
+        HNSW_C --> Pool
         Pool --> KG_Exp[KG Expansion & Topic Lock]
         KG_Exp --> RRF[4-Way RRF Fusion + Supersession]
         RRF --> Context[Agentic Context]
