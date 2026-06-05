@@ -35,14 +35,72 @@ logging.basicConfig(
 logger = logging.getLogger("BenchmarkRunner")
 
 # ── Imports ────────────────────────────────────────────────────────────────────
+import asyncio
 try:
     from google import genai
 except ImportError:
     print("Error: google-genai is not installed. Run: pip install google-genai")
     sys.exit(1)
 
-from epochdb import EpochDB
+from epochdb import EpochDB, AsyncEpochDB
 from benchmarks import locomo, convomem, longmemeval, needle
+
+
+class AsyncEpochDBAdapter:
+    def __init__(self, async_db: AsyncEpochDB, loop: asyncio.AbstractEventLoop):
+        self.async_db = async_db
+        self.loop = loop
+
+    @property
+    def hot_tier(self):
+        return self.async_db._db.hot_tier
+
+    @property
+    def wal(self):
+        return self.async_db._db.wal
+
+    def add_memory(self, payload, embedding, triples=None):
+        return self.loop.run_until_complete(self.async_db.add_memory(payload, embedding, triples))
+
+    def recall(self, query_emb, top_k=5, expand_hops=1, query_entities=None):
+        return self.loop.run_until_complete(self.async_db.recall(query_emb, top_k, expand_hops, query_entities))
+
+    def force_checkpoint(self):
+        self.loop.run_until_complete(self.async_db.force_checkpoint())
+
+    def extract_entities(self, text):
+        return self.loop.run_until_complete(self.async_db.extract_entities(text))
+
+
+class AsyncDbWrapper:
+    def __init__(self, storage_dir, dim):
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        self.async_db = AsyncEpochDB(storage_dir=storage_dir, dim=dim)
+        self.db = self.loop.run_until_complete(self.async_db.__aenter__())
+        self.adapter = AsyncEpochDBAdapter(self.db, self.loop)
+
+    def __getattr__(self, name):
+        return getattr(self.adapter, name)
+
+    def close(self):
+        if self.loop is not None and not self.loop.is_closed():
+            try:
+                self.loop.run_until_complete(self.async_db.__aexit__(None, None, None))
+            except Exception:
+                pass
+            try:
+                self.loop.close()
+            except Exception:
+                pass
+            self.loop = None
+
+
+def init_db(storage_dir: str, dim: int, async_mode: bool):
+    if async_mode:
+        return AsyncDbWrapper(storage_dir, dim)
+    else:
+        return EpochDB(storage_dir=storage_dir, dim=dim)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 EMBED_MODEL = "gemini-embedding-2"
@@ -175,13 +233,19 @@ Evaluation uses Entity Hook seeding to ensure Topic Lock.
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Run EpochDB benchmarks")
+    parser.add_argument("--async-mode", "-a", action="store_true", help="Run benchmarks in async mode using AsyncEpochDB facade")
+    args = parser.parse_args()
+
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         print(f"{RD}Error: GEMINI_API_KEY not set (checked .env and environment).{R}")
         sys.exit(1)
 
+    mode_str = "Async" if args.async_mode else "Sync"
     print("\n╔══════════════════════════════════════════════════════════════╗")
-    print(  "║    EpochDB v0.4.1 — Named Benchmark Suite                   ║")
+    print(f"║    EpochDB v0.4.1 — Named Benchmark Suite ({mode_str:5})       ║")
     print(  "║    LoCoMo · ConvoMem · LongMemEval · NIAH                   ║")
     print(  "╚══════════════════════════════════════════════════════════════╝")
     print(f"\n  Embedding:  {BD}{EMBED_MODEL}{R} ({DIM}D)")
@@ -192,7 +256,8 @@ def main():
 
     if os.path.exists(STORAGE_DIR):
         shutil.rmtree(STORAGE_DIR)
-    db = EpochDB(storage_dir=STORAGE_DIR, dim=DIM)
+    db = init_db(STORAGE_DIR, DIM, args.async_mode)
+    db.close()
 
     t_start  = time.perf_counter()
     results  = {}
@@ -200,7 +265,7 @@ def main():
     # ── LoCoMo ──────────────────────────────────────────────────────────────
     hr("1 / 3 — LoCoMo (Multi-Hop Relational Reasoning)")
     if os.path.exists(STORAGE_DIR): shutil.rmtree(STORAGE_DIR)
-    db = EpochDB(storage_dir=STORAGE_DIR, dim=DIM)
+    db = init_db(STORAGE_DIR, DIM, args.async_mode)
     t0 = time.perf_counter()
     results["locomo"] = locomo.run(db, embedder)
     lo = results["locomo"]
@@ -216,7 +281,7 @@ def main():
     # ── ConvoMem ─────────────────────────────────────────────────────────────
     hr("2 / 3 — ConvoMem (Conversational Memory Recall)")
     if os.path.exists(STORAGE_DIR): shutil.rmtree(STORAGE_DIR)
-    db = EpochDB(storage_dir=STORAGE_DIR, dim=DIM)
+    db = init_db(STORAGE_DIR, DIM, args.async_mode)
     t0 = time.perf_counter()
     results["convomem"] = convomem.run(db, embedder)
     cv = results["convomem"]
@@ -228,7 +293,7 @@ def main():
     # ── LongMemEval ───────────────────────────────────────────────────────────
     hr("3 / 3 — LongMemEval (Longitudinal Session Memory)")
     if os.path.exists(STORAGE_DIR): shutil.rmtree(STORAGE_DIR)
-    db = EpochDB(storage_dir=STORAGE_DIR, dim=DIM)
+    db = init_db(STORAGE_DIR, DIM, args.async_mode)
     t0 = time.perf_counter()
     results["longmemeval"] = longmemeval.run(db, embedder)
     lm = results["longmemeval"]
@@ -240,7 +305,7 @@ def main():
     # ── NIAH ──────────────────────────────────────────────────────────────────
     hr("4 / 4 — Needle in a Haystack (Retrieval Precision)")
     if os.path.exists(STORAGE_DIR): shutil.rmtree(STORAGE_DIR)
-    db = EpochDB(storage_dir=STORAGE_DIR, dim=DIM)
+    db = init_db(STORAGE_DIR, DIM, args.async_mode)
     t0 = time.perf_counter()
     results["needle"] = needle.run(db, embedder)
     nd = results["needle"]

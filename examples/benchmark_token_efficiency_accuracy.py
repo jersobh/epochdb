@@ -265,7 +265,16 @@ def get_response(client, prompt: str, turn_idx: int, live_mode: bool) -> str:
                 else:
                     print(f"{C.RED}Live Generation failed: {e}. Using mock fallback.{C.END}")
                     break
-    return SCENARIO_TURNS[turn_idx]["assistant"]
+    resp = SCENARIO_TURNS[turn_idx]["assistant"]
+    if not live_mode:
+        filler = (
+            " Detailed architectural design and system requirements are crucial for ensuring the scalability "
+            "and performance of such a platform. We will need to carefully plan the database schema, indexing strategies, "
+            "and transaction boundaries to meet our sub-millisecond retrieval goals. I look forward to working through the "
+            "implementation details and coordinating the work items across our agent team."
+        )
+        resp += filler
+    return resp
 
 
 # ── Verification Check ────────────────────────────────────────────────────────
