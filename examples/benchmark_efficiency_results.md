@@ -7,26 +7,26 @@ This benchmark evaluates the input token efficiency and retrieval accuracy acros
 
 ## Executive Summary
 
-- **Execution Mode**: `Live (Gemini API)`
-- **Standard LangGraph Input Tokens**: **19,482**
-- **LangGraph + EpochDB Input Tokens**: **9,098** (Savings vs. Standard: **53.3%**)
-- **Astraea (+ EpochDB) Input Tokens**: **2,232** (Savings vs. Standard: **88.5%**)
+- **Execution Mode**: `Offline Mock (Local Keyword Embeddings)`
+- **Standard LangGraph Input Tokens**: **7,319**
+- **LangGraph + EpochDB Input Tokens**: **3,437** (Savings vs. Standard: **53.0%**)
+- **Astraea (+ EpochDB) Input Tokens**: **2,733** (Savings vs. Standard: **62.7%**)
 
 ## Performance & Correctness Matrix
 
 | Turn | User Query | Standard LangGraph (Tokens/Grade) | LangGraph + EpochDB (Tokens/Grade) | Astraea (+ EpochDB) (Tokens/Grade) |
 | --- | --- | --- | --- | --- |
 | 1 | *"Let's talk about Star Wars. Anakin Skywalker is a young slave on Tatooine who has a high concentration of midi-chlorians."* | 68 / ✓ | 93 / ✓ | 68 / ✓ |
-| 2 | *"Anakin's master is Obi-Wan Kenobi, who trains him after Qui-Gon Jinn is killed by Darth Maul."* | 280 / ✓ | 374 / ✓ | 61 / ✓ |
-| 3 | *"Anakin falls to the dark side and becomes Darth Vader, serving Emperor Palpatine."* | 660 / ✓ | 799 / ✓ | 58 / ✓ |
-| 4 | *"Anakin has twins, Luke Skywalker and Leia Organa, who are hidden from him to protect them."* | 1,170 / ✓ | 1,148 / ✓ | 61 / ✓ |
-| 5 | *"Luke trains with Yoda on Dagobah and eventually helps Anakin redeem himself, defeating Palpatine on the second Death Star."* | 1,739 / ✓ | 1,409 / ✓ | 69 / ✓ |
-| 6 | *"Where did Luke Skywalker train, and who was his teacher?"* | 2,411 / ✓ | 1,565 / ✓ | 513 / ✓ |
-| 7 | *"Who is Anakin Skywalker's master, and who killed Qui-Gon Jinn?"* | 2,890 / ✓ | 1,035 / ✓ | 417 / ✓ |
-| 8 | *"What is the name of Anakin's twins, and who do they need protection from?"* | 3,124 / ✓ | 812 / ✓ | 278 / ✓ |
-| 9 | *"Who did Anakin Skywalker become after turning to the dark side, and who does he serve?"* | 3,479 / ✓ | 1,046 / ✓ | 284 / ✓ |
-| 10 | *"Summarize the story of Anakin Skywalker and his family from the first six movies."* | 3,661 / ✓ | 817 / ✗ (Missing: yoda) | 423 / ✓ |
-| **TOTAL** | | **19,482** | **9,098** | **2,232** |
+| 2 | *"Anakin's master is Obi-Wan Kenobi, who trains him after Qui-Gon Jinn is killed by Darth Maul."* | 219 / ✓ | 244 / ✓ | 61 / ✓ |
+| 3 | *"Anakin falls to the dark side and becomes Darth Vader, serving Emperor Palpatine."* | 363 / ✓ | 388 / ✓ | 58 / ✓ |
+| 4 | *"Anakin has twins, Luke Skywalker and Leia Organa, who are hidden from him to protect them."* | 511 / ✓ | 378 / ✓ | 61 / ✓ |
+| 5 | *"Luke trains with Yoda on Dagobah and eventually helps Anakin redeem himself, defeating Palpatine on the second Death Star."* | 670 / ✓ | 389 / ✓ | 69 / ✓ |
+| 6 | *"Where did Luke Skywalker train, and who was his teacher?"* | 820 / ✓ | 421 / ✓ | 462 / ✓ |
+| 7 | *"Who is Anakin Skywalker's master, and who killed Qui-Gon Jinn?"* | 949 / ✓ | 383 / ✓ | 478 / ✓ |
+| 8 | *"What is the name of Anakin's twins, and who do they need protection from?"* | 1,089 / ✓ | 358 / ✓ | 434 / ✓ |
+| 9 | *"Who did Anakin Skywalker become after turning to the dark side, and who does he serve?"* | 1,245 / ✓ | 389 / ✓ | 454 / ✓ |
+| 10 | *"Summarize the story of Anakin Skywalker and his family from the first six movies."* | 1,385 / ✓ | 394 / ✓ | 588 / ✓ |
+| **TOTAL** | | **7,319** | **3,437** | **2,733** |
 
 ## Findings & Insights
 

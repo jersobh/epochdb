@@ -6,6 +6,21 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.0.0] - 2026-06-04
+### Added
+- **Public API Facade**: Introduced `EpochDB` and `AsyncEpochDB` facades returning rich `Memory`, `Entity`, and `Graph` domain objects.
+- **Codebase Modularization**: Reorganized the codebase into structured sub-directories: `core/`, `storage/`, `entities/`, `retrieval/`, and `api/`.
+- **Compaction & Soft-Delete**: Added support for historical Parquet archive compaction (`compact()`) and filter check for soft-deleted atoms (`_deleted: True`).
+- **Metadata Filtering**: Integrated MongoDB-style comparison operators (`$eq`, `$ne`, `$in`, `$gt`, etc.) in the candidate deduplication phase of vector retrieval.
+
+### Changed
+- **Backward-Compatible Shims**: Retained root-level shim files (`atom.py`, `checkpointer.py`, etc.) for zero consumer import disruption.
+- **Token Benchmark Optimizations**: Simulated realistic conversation lengths in mock benchmarks to demonstrate true $O(N^2)$ quadratic vs. $O(N)$ linear token growth in offline mock tests.
+
+### Fixed
+- **Payload Type Inference**: Fixed a bug where `payload_type` defaulted to text and was not automatically inferred from class type.
+- **Constructor Parameter Collision**: Fixed a collision in `EpochDB.__init__` where older scripts passing the `model` keyword argument directly caused a duplicate value error.
+
 ## [0.7.2] - 2026-05-25
 ### Fixed
 - **Rate Limit Handling**: Added exponential backoff retry logic for Gemini embedding calls to handle rate limiting gracefully.

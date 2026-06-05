@@ -150,3 +150,52 @@ def test_access_count_delta_for_cold_atoms(test_db):
     assert results[0].access_count >= 2, (
         "access_count should have been incremented by cold-tier recalls"
     )
+
+
+# ---------------------------------------------------------------------------
+# Corrupt Parquet Handling
+# ---------------------------------------------------------------------------
+
+def test_corrupt_parquet_handling(test_db):
+    """
+    Simulate a corrupted Parquet file by writing 4 bytes to an epoch file,
+    and verify that load, search, and recall do not raise exceptions.
+    """
+    # 1. Add some valid memories and force a checkpoint to create cold tier data
+    emb = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    test_db.add_memory("Valid memory in cold tier", emb)
+    test_db.force_checkpoint()
+    
+    # 2. Add another memory, so we have at least one more epoch
+    test_db.add_memory("Another valid memory", emb)
+    test_db.force_checkpoint()
+    
+    # 3. Locate the parquet files in the storage directory
+    storage_dir = test_db.storage_dir
+    parquet_files = [f for f in os.listdir(storage_dir) if f.endswith(".parquet")]
+    assert len(parquet_files) >= 1
+    
+    # Corrupt one of the parquet files by overwriting it with 4 bytes
+    corrupt_file = os.path.join(storage_dir, parquet_files[0])
+    with open(corrupt_file, "wb") as f:
+        f.write(b"PAR1") # 4 bytes - invalid parquet file header/footer
+        
+    # 4. Check that cold_tier functions do not raise exceptions and handle it gracefully
+    # We call load_epoch, search_epoch, and load_atom_metadata on the cold tier
+    epoch_id = parquet_files[0].replace(".parquet", "")
+    
+    # These should not crash:
+    atoms = test_db.retriever.cold_tier.load_epoch(epoch_id)
+    assert atoms == []
+    
+    searched = test_db.retriever.cold_tier.search_epoch(epoch_id, emb, top_k=2)
+    assert searched == []
+    
+    metadata = test_db.retriever.cold_tier.load_atom_metadata(epoch_id, ["dummy_id"])
+    assert metadata == []
+    
+    # 5. Check that engine recall still runs without raising exceptions (even if it skips the corrupted epoch)
+    results = test_db.recall(emb, top_k=5)
+    # The recall should complete successfully
+    assert isinstance(results, list)
+
