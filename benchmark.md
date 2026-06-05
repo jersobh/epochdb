@@ -686,3 +686,375 @@ Evaluation uses Entity Hook seeding to ensure Topic Lock.
 | ConvoMem | recall@3 | `1.000` |
 | LongMemEval | recall@3 | `1.000` |
 | NIAH | precision@3 | `1.000` |
+
+---
+
+## Named Benchmark Suite — 2026-06-04 13:12 UTC
+
+> Embeddings: `gemini-embedding-2` (3072D)  
+> Gemini API calls: 91  ·  Wall time: 39.5s  
+> All data self-contained (no external HuggingFace datasets required)
+
+---
+
+### LoCoMo — Multi-Hop Relational Reasoning
+
+**Aggregate recall**: `1.000` (3/3 chains)
+
+| Chain (target) | Found at hop | Pass |
+|---|---|---|
+| Chain 1 (Helion) | 0 | ✓ |
+| Chain 2 (Dr. Chen) | 0 | ✓ |
+| Chain 3 (CRISPR-X) | 0 | ✓ |
+
+> LoCoMo queries are deliberately semantically distant from their targets.
+> Only Knowledge Graph traversal can retrieve the answer — flat vector stores
+> return 0 by design on these queries.
+
+---
+
+### ConvoMem — Conversational Memory Recall
+
+**recall@3**: `1.000` (5/5 conversations correct)
+
+5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
+Includes preference updates and corrections (tests most-recent-fact recall).
+
+---
+
+### LongMemEval — Longitudinal Session Memory
+
+**recall@3**: `1.000` (4/4 QA pairs correct)
+
+4 sessions ingested with epoch checkpoints between each.
+All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
+
+---
+
+### Needle in a Haystack — Retrieval Precision
+
+**precision@3**: `1.000` (3/3 results are signal)
+
+3 signal facts hidden among 50 noise facts.  
+Evaluation uses Entity Hook seeding to ensure Topic Lock.
+
+---
+
+### Summary
+
+| Benchmark | Metric | Result |
+|---|---|---|
+| LoCoMo | Multi-hop recall | `1.000` |
+| ConvoMem | recall@3 | `1.000` |
+| LongMemEval | recall@3 | `1.000` |
+| NIAH | precision@3 | `1.000` |
+
+---
+
+## Named Benchmark Suite — 2026-06-04 13:15 UTC
+
+> Embeddings: `gemini-embedding-2` (3072D)  
+> Gemini API calls: 91  ·  Wall time: 39.3s  
+> All data self-contained (no external HuggingFace datasets required)
+
+---
+
+### LoCoMo — Multi-Hop Relational Reasoning
+
+**Aggregate recall**: `1.000` (3/3 chains)
+
+| Chain (target) | Found at hop | Pass |
+|---|---|---|
+| Chain 1 (Helion) | 0 | ✓ |
+| Chain 2 (Dr. Chen) | 0 | ✓ |
+| Chain 3 (CRISPR-X) | 0 | ✓ |
+
+> LoCoMo queries are deliberately semantically distant from their targets.
+> Only Knowledge Graph traversal can retrieve the answer — flat vector stores
+> return 0 by design on these queries.
+
+---
+
+### ConvoMem — Conversational Memory Recall
+
+**recall@3**: `1.000` (5/5 conversations correct)
+
+5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
+Includes preference updates and corrections (tests most-recent-fact recall).
+
+---
+
+### LongMemEval — Longitudinal Session Memory
+
+**recall@3**: `1.000` (4/4 QA pairs correct)
+
+4 sessions ingested with epoch checkpoints between each.
+All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
+
+---
+
+### Needle in a Haystack — Retrieval Precision
+
+**precision@3**: `1.000` (3/3 results are signal)
+
+3 signal facts hidden among 50 noise facts.  
+Evaluation uses Entity Hook seeding to ensure Topic Lock.
+
+---
+
+### Summary
+
+| Benchmark | Metric | Result |
+|---|---|---|
+| LoCoMo | Multi-hop recall | `1.000` |
+| ConvoMem | recall@3 | `1.000` |
+| LongMemEval | recall@3 | `1.000` |
+| NIAH | precision@3 | `1.000` |
+
+---
+
+## Named Benchmark Suite — 2026-06-04 15:18 UTC
+
+> Embeddings: `gemini-embedding-2` (3072D)  
+> Gemini API calls: 91  ·  Wall time: 50.4s  
+> All data self-contained (no external HuggingFace datasets required)
+
+---
+
+### LoCoMo — Multi-Hop Relational Reasoning
+
+**Aggregate recall**: `1.000` (3/3 chains)
+
+| Chain (target) | Found at hop | Pass |
+|---|---|---|
+| Chain 1 (Helion) | 0 | ✓ |
+| Chain 2 (Dr. Chen) | 0 | ✓ |
+| Chain 3 (CRISPR-X) | 0 | ✓ |
+
+> LoCoMo queries are deliberately semantically distant from their targets.
+> Only Knowledge Graph traversal can retrieve the answer — flat vector stores
+> return 0 by design on these queries.
+
+---
+
+### ConvoMem — Conversational Memory Recall
+
+**recall@3**: `1.000` (5/5 conversations correct)
+
+5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
+Includes preference updates and corrections (tests most-recent-fact recall).
+
+---
+
+### LongMemEval — Longitudinal Session Memory
+
+**recall@3**: `1.000` (4/4 QA pairs correct)
+
+4 sessions ingested with epoch checkpoints between each.
+All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
+
+---
+
+### Needle in a Haystack — Retrieval Precision
+
+**precision@3**: `1.000` (3/3 results are signal)
+
+3 signal facts hidden among 50 noise facts.  
+Evaluation uses Entity Hook seeding to ensure Topic Lock.
+
+---
+
+### Summary
+
+| Benchmark | Metric | Result |
+|---|---|---|
+| LoCoMo | Multi-hop recall | `1.000` |
+| ConvoMem | recall@3 | `1.000` |
+| LongMemEval | recall@3 | `1.000` |
+| NIAH | precision@3 | `1.000` |
+
+---
+
+## Named Benchmark Suite — 2026-06-04 15:19 UTC
+
+> Embeddings: `gemini-embedding-2` (3072D)  
+> Gemini API calls: 91  ·  Wall time: 47.9s  
+> All data self-contained (no external HuggingFace datasets required)
+
+---
+
+### LoCoMo — Multi-Hop Relational Reasoning
+
+**Aggregate recall**: `1.000` (3/3 chains)
+
+| Chain (target) | Found at hop | Pass |
+|---|---|---|
+| Chain 1 (Helion) | 0 | ✓ |
+| Chain 2 (Dr. Chen) | 0 | ✓ |
+| Chain 3 (CRISPR-X) | 0 | ✓ |
+
+> LoCoMo queries are deliberately semantically distant from their targets.
+> Only Knowledge Graph traversal can retrieve the answer — flat vector stores
+> return 0 by design on these queries.
+
+---
+
+### ConvoMem — Conversational Memory Recall
+
+**recall@3**: `1.000` (5/5 conversations correct)
+
+5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
+Includes preference updates and corrections (tests most-recent-fact recall).
+
+---
+
+### LongMemEval — Longitudinal Session Memory
+
+**recall@3**: `1.000` (4/4 QA pairs correct)
+
+4 sessions ingested with epoch checkpoints between each.
+All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
+
+---
+
+### Needle in a Haystack — Retrieval Precision
+
+**precision@3**: `1.000` (3/3 results are signal)
+
+3 signal facts hidden among 50 noise facts.  
+Evaluation uses Entity Hook seeding to ensure Topic Lock.
+
+---
+
+### Summary
+
+| Benchmark | Metric | Result |
+|---|---|---|
+| LoCoMo | Multi-hop recall | `1.000` |
+| ConvoMem | recall@3 | `1.000` |
+| LongMemEval | recall@3 | `1.000` |
+| NIAH | precision@3 | `1.000` |
+
+---
+
+## Named Benchmark Suite — 2026-06-04 16:13 UTC
+
+> Embeddings: `gemini-embedding-2` (3072D)  
+> Gemini API calls: 91  ·  Wall time: 67.4s  
+> All data self-contained (no external HuggingFace datasets required)
+
+---
+
+### LoCoMo — Multi-Hop Relational Reasoning
+
+**Aggregate recall**: `1.000` (3/3 chains)
+
+| Chain (target) | Found at hop | Pass |
+|---|---|---|
+| Chain 1 (Helion) | 0 | ✓ |
+| Chain 2 (Dr. Chen) | 0 | ✓ |
+| Chain 3 (CRISPR-X) | 0 | ✓ |
+
+> LoCoMo queries are deliberately semantically distant from their targets.
+> Only Knowledge Graph traversal can retrieve the answer — flat vector stores
+> return 0 by design on these queries.
+
+---
+
+### ConvoMem — Conversational Memory Recall
+
+**recall@3**: `1.000` (5/5 conversations correct)
+
+5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
+Includes preference updates and corrections (tests most-recent-fact recall).
+
+---
+
+### LongMemEval — Longitudinal Session Memory
+
+**recall@3**: `1.000` (4/4 QA pairs correct)
+
+4 sessions ingested with epoch checkpoints between each.
+All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
+
+---
+
+### Needle in a Haystack — Retrieval Precision
+
+**precision@3**: `1.000` (3/3 results are signal)
+
+3 signal facts hidden among 50 noise facts.  
+Evaluation uses Entity Hook seeding to ensure Topic Lock.
+
+---
+
+### Summary
+
+| Benchmark | Metric | Result |
+|---|---|---|
+| LoCoMo | Multi-hop recall | `1.000` |
+| ConvoMem | recall@3 | `1.000` |
+| LongMemEval | recall@3 | `1.000` |
+| NIAH | precision@3 | `1.000` |
+
+---
+
+## Named Benchmark Suite — 2026-06-04 17:10 UTC
+
+> Embeddings: `gemini-embedding-2` (3072D)  
+> Gemini API calls: 91  ·  Wall time: 43.3s  
+> All data self-contained (no external HuggingFace datasets required)
+
+---
+
+### LoCoMo — Multi-Hop Relational Reasoning
+
+**Aggregate recall**: `1.000` (3/3 chains)
+
+| Chain (target) | Found at hop | Pass |
+|---|---|---|
+| Chain 1 (Helion) | 0 | ✓ |
+| Chain 2 (Dr. Chen) | 0 | ✓ |
+| Chain 3 (CRISPR-X) | 0 | ✓ |
+
+> LoCoMo queries are deliberately semantically distant from their targets.
+> Only Knowledge Graph traversal can retrieve the answer — flat vector stores
+> return 0 by design on these queries.
+
+---
+
+### ConvoMem — Conversational Memory Recall
+
+**recall@3**: `1.000` (5/5 conversations correct)
+
+5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
+Includes preference updates and corrections (tests most-recent-fact recall).
+
+---
+
+### LongMemEval — Longitudinal Session Memory
+
+**recall@3**: `1.000` (4/4 QA pairs correct)
+
+4 sessions ingested with epoch checkpoints between each.
+All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
+
+---
+
+### Needle in a Haystack — Retrieval Precision
+
+**precision@3**: `1.000` (3/3 results are signal)
+
+3 signal facts hidden among 50 noise facts.  
+Evaluation uses Entity Hook seeding to ensure Topic Lock.
+
+---
+
+### Summary
+
+| Benchmark | Metric | Result |
+|---|---|---|
+| LoCoMo | Multi-hop recall | `1.000` |
+| ConvoMem | recall@3 | `1.000` |
+| LongMemEval | recall@3 | `1.000` |
+| NIAH | precision@3 | `1.000` |
