@@ -1,8 +1,10 @@
+
 <p align="center">
   <img src="logo-epoch.png" alt="EpochDB Logo" width="180" />
 </p>
 
-# EpochDB — Agentic Memory Engine
+# EpochDB — Agentic Memory Engine [![PyPI Downloads](https://static.pepy.tech/personalized-badge/epochdb?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/epochdb)
+
 
 **EpochDB** is a high-performance, state-aware memory engine designed for lossless, tiered storage, atomic state management, and multi-hop relational reasoning. It is built specifically for AI agents that require perfect historical recall, long-term state persistence, and deterministic fact corrections.
 
