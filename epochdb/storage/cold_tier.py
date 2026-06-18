@@ -238,7 +238,11 @@ class ColdTier:
 
         # Case 2: Vectorized Linear Fallback (Fast Matrix Ops)
         try:
-            table = pq.read_table(file_path, columns=["embedding", "embedding_max"])
+            schema = pq.read_schema(file_path)
+            columns = ["embedding"]
+            if "embedding_max" in schema.names:
+                columns.append("embedding_max")
+            table = pq.read_table(file_path, columns=columns)
             
             # Matrix-based similarity calculation
             # PyArrow fixed-size list to numpy is fast

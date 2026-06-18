@@ -41,9 +41,10 @@ def test_add_memory(test_db):
 
 def test_dimensionality_enforcement(test_db, storage_dir):
     test_db.close()
-    with pytest.raises(ValueError, match="Dimensionality mismatch"):
-        db2 = EpochDB(storage_dir=storage_dir, dim=8)
-        db2.close()
+    # Should automatically adjust dim to the stored dimension (4) instead of raising ValueError
+    db2 = EpochDB(storage_dir=storage_dir, dim=8)
+    assert db2.dim == 4
+    db2.close()
 
 
 # ---------------------------------------------------------------------------
