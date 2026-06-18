@@ -80,10 +80,16 @@ class HotTier:
         self.quant_index.index_atom(atom)
 
     def query_vector(self, query_emb: np.ndarray, top_k: int = 5) -> List[UnifiedMemoryAtom]:
-        if len(self.atoms) == 0:
+        current_count = self.vector_index.get_current_count()
+        if current_count == 0:
             return []
 
-        actual_k = min(top_k, len(self.atoms))
+        if len(query_emb) != self.dim:
+            raise ValueError(
+                f"Query embedding dimension mismatch: got {len(query_emb)}, expected {self.dim}."
+            )
+
+        actual_k = min(top_k, current_count)
         labels, _ = self.vector_index.knn_query([query_emb], k=actual_k)
 
         results = []
