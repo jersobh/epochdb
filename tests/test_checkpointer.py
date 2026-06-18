@@ -80,7 +80,7 @@ def test_put_writes(test_db):
     assert len(write_files) == 1
     assert "task_1" in write_files[0]
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_async_save_load(test_db):
     checkpointer = EpochDBCheckpointer(test_db)
     

@@ -64,11 +64,11 @@ class EpochDB:
                 metadata = json.load(f)
                 stored_dim = metadata.get("dim")
                 if stored_dim and stored_dim != self.dim:
-                    raise ValueError(
+                    logger.info(
                         f"Dimensionality mismatch! Stored data is {stored_dim}d, "
-                        f"but engine initialized with {self.dim}d. "
-                        f"Please clear '{self.storage_dir}' or use matching dimensions."
+                        f"but engine initialized with {self.dim}d. Automatically setting to {stored_dim}d."
                     )
+                    self.dim = stored_dim
         else:
             with open(self.metadata_file, "w") as f:
                 json.dump({"dim": self.dim, "created_at": time.time()}, f)
