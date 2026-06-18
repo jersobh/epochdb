@@ -6,6 +6,18 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.0.1] - 2026-06-18
+### Added
+- **Query Embedding Dimension Guard**: Added explicit validation checking to `query_vector` in `HotTier` to catch query embedding dimension mismatches and raise a clear ValueError.
+
+### Changed
+- **Adaptive Dimension Sync**: Automatically syncs engine dimension `self.dim` to match the stored data dimensionality in `metadata.json` if a mismatch is detected, rather than raising a hard ValueError.
+- **Hot Tier Query Coverage**: Transitioned from using `len(self.atoms)` to `self.vector_index.get_current_count()` in `HotTier.query_vector` for accurate dimension queries and k-nearest capping.
+
+### Fixed
+- **Cold Tier Schema Safety**: Checks the parquet schema for `"embedding_max"` presence using `pq.read_schema` before reading it, preventing errors on legacy or differently structured parquet files.
+- **Async Test Framework**: Migrated async checkpointer tests in `tests/test_checkpointer.py` to use `pytest.mark.anyio` to align with the installed async testing plugins and avoid execution failures.
+
 ## [1.0.0] - 2026-06-04
 ### Added
 - **Public API Facade**: Introduced `EpochDB` and `AsyncEpochDB` facades returning rich `Memory`, `Entity`, and `Graph` domain objects.
