@@ -197,6 +197,71 @@ print(graph.edges)  # List of edge dictionaries mapping sources and targets
 
 ---
 
+## Client-Server Architecture
+
+EpochDB supports remote deployments via a client-server architecture, allowing multiple agents or server processes to share a single, central database over HTTP.
+
+### 1. Starting the Server (`ThreadingEpochDBServer`)
+
+Start the multi-threaded HTTP server on the host machine to serve an `EpochDB` instance:
+
+```python
+from epochdb import EpochDB
+from epochdb.api.server import start_server
+
+db = EpochDB(storage_dir="./shared_memory", embedding_model="all-MiniLM-L6-v2")
+server = start_server(db, host="0.0.0.0", port=8080)
+
+try:
+    server.serve_forever()
+finally:
+    db.close()
+```
+
+### 2. Communicating via the Client (`RemoteEpochDB`)
+
+Use the remote client to execute queries, store memories, and retrieve timelines over HTTP REST:
+
+```python
+from epochdb import RemoteEpochDB
+
+# Initialize the client
+client = RemoteEpochDB(host="127.0.0.1", port=8080)
+
+# Store a memory
+client.remember("Pollyanna is married to Jefferson.")
+
+# Query the remote database
+results = client.query("Who is Pollyanna married to?", k=1)
+print(results[0].text)  # "Pollyanna is married to Jefferson."
+
+# Access database stats remotely
+stats = client.stats()
+print(stats)
+```
+
+---
+
+## Multi-Tenant Partitioning & WAL Optimizations
+
+### 1. Multi-Tenant Isolation
+For multi-tenant SaaS platforms or isolated agent sessions, EpochDB can physically partition database files on disk using the `tenant` parameter:
+
+```python
+# Database files are physically isolated under the "tenants/tenant_alpha" subdirectory
+db = EpochDB(storage_dir="./app_data", tenant="tenant_alpha")
+```
+
+### 2. Configurable WAL Sync Interval
+By default, the Write-Ahead Log (WAL) synchronously forces an `fsync` call to disk on every transaction append, ensuring zero data loss but limiting write throughput. You can speed up writes dramatically by configuring asynchronous background syncing:
+
+```python
+# Sync the WAL file to disk asynchronously every 0.1 seconds in a background thread
+db = EpochDB(storage_dir="./memory", wal_sync_interval=0.1)
+```
+
+---
+
 ## LangGraph Integration
 
 EpochDB provides native checkpointer support for both synchronous and asynchronous workflows:

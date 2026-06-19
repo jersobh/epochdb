@@ -6,6 +6,21 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.0.3] - 2026-06-19
+### Added
+- **Client-Server Architecture**: Introduced `RemoteEpochDB` (in `epochdb/api/client.py`) and a multi-threaded HTTP server `ThreadingEpochDBServer` (in `epochdb/api/server.py`) to run and communicate with a remote instance of EpochDB using HTTP REST endpoints.
+- **Multi-Tenant Partitioning**: Added a `tenant` parameter to physically partition database files under `tenants/<tenant_name>/`, ensuring strict data isolation.
+- **Asynchronous WAL Syncing**: Added a `wal_sync_interval` configuration parameter to support asynchronous background thread `fsync` flushing on the WAL, optimizing throughput for write-heavy workloads.
+
+### Changed
+- **Entity Extraction Enhancements**:
+  - Added acronym matching inside parentheses (e.g. mapping an entity `"(XYZ)"` to `"xyz"` in the query).
+  - Added common Portuguese stopwords ("o", "a", "os", "as", "eu", "meu", "minha", etc.) to the entity extraction blacklist.
+
+### Fixed
+- **WAL Replay COMMIT Handling**: Fixed a database startup crash-recovery issue in `WriteAheadLog.replay()` where the pending operations list was not cleared when encountering a `COMMIT` record. This caused successfully committed historical atoms to be incorrectly replayed and restored to the hot tier at startup, leading to duplicated recovery effort and slower database load times.
+- **Thread Safety Guarding**: Enforced concurrency thread locks (`with self._internal_lock`) across all key engine entry points, including `get_total_atoms()`, memory/batch writes, epoch checkpointing, and database lifecycle methods.
+
 ## [1.0.1] - 2026-06-18
 ### Added
 - **Query Embedding Dimension Guard**: Added explicit validation checking to `query_vector` in `HotTier` to catch query embedding dimension mismatches and raise a clear ValueError.
