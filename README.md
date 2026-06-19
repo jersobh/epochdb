@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="logo-epoch.png" alt="EpochDB Logo" width="180" />
+  <img
+    src="https://raw.githubusercontent.com/jersobh/epochdb/main/logo-epoch.png"
+    alt="EpochDB Logo"
+    width="180"
+  />
 </p>
 
 # EpochDB — Agentic Memory Engine
