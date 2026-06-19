@@ -1,6 +1,8 @@
 import os
 import json
 import logging
+import threading
+import time
 from typing import Dict, Any
 from datetime import datetime, date
 
@@ -91,9 +93,28 @@ class FileLock:
 class WriteAheadLog:
     """Append-only JSONL log for crash recovery."""
 
-    def __init__(self, wal_path: str):
+    def __init__(self, wal_path: str, sync_interval: float = 0.0):
         self.wal_path = wal_path
+        self.sync_interval = sync_interval
         self._file = open(self.wal_path, "a")
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._sync_thread = None
+
+        if self.sync_interval > 0.0:
+            self._sync_thread = threading.Thread(target=self._periodic_sync, daemon=True)
+            self._sync_thread.start()
+
+    def _periodic_sync(self):
+        while not self._stop_event.is_set():
+            time.sleep(self.sync_interval)
+            with self._lock:
+                if not self._file.closed:
+                    try:
+                        self._file.flush()
+                        os.fsync(self._file.fileno())
+                    except Exception as e:
+                        logger.error(f"Error during periodic WAL fsync: {e}")
 
     def append(self, operation: str, data: Dict[str, Any]):
         def json_serial(obj):
@@ -102,9 +123,14 @@ class WriteAheadLog:
             raise TypeError(f"Type {type(obj)} not serializable")
 
         record = json.dumps({"op": operation, "data": data}, default=json_serial)
-        self._file.write(record + "\n")
-        self._file.flush()
-        os.fsync(self._file.fileno())
+        with self._lock:
+            self._file.write(record + "\n")
+            self._file.flush()
+            if self.sync_interval <= 0.0:
+                try:
+                    os.fsync(self._file.fileno())
+                except OSError as e:
+                    logger.error(f"Failed to fsync WAL: {e}")
 
     def log_delete(self, atom_id: str):
         """Log a persistent delete operation."""
@@ -131,8 +157,8 @@ class WriteAheadLog:
                         if op == "ADD":
                             pending.append(record["data"])
                         elif op == "COMMIT":
-                            # COMMIT means the atoms are safe to restore to Hot Tier.
-                            pass
+                            # COMMIT means the atoms were successfully committed, so we don't need to replay them.
+                            pending = []
                         elif op == "ROLLBACK":
                             # ROLLBACK means discard the pending atoms.
                             pending = []
@@ -145,13 +171,24 @@ class WriteAheadLog:
         return pending
 
     def close(self):
-        self._file.close()
+        if self._sync_thread:
+            self._stop_event.set()
+            self._sync_thread.join(timeout=1.0)
+        with self._lock:
+            if not self._file.closed:
+                try:
+                    self._file.flush()
+                    os.fsync(self._file.fileno())
+                except Exception:
+                    pass
+                self._file.close()
 
     def clear(self):
         """Called upon successful Epoch Checkpoint."""
-        self._file.close()
-        open(self.wal_path, "w").close()
-        self._file = open(self.wal_path, "a")
+        with self._lock:
+            self._file.close()
+            open(self.wal_path, "w").close()
+            self._file = open(self.wal_path, "a")
 
 
 class MultiIndexTransaction:

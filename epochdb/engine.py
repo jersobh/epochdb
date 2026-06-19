@@ -46,7 +46,16 @@ class EpochDB:
         saliency_threshold: float = 0.1,
         hot_tier_capacity: int = 10_000,
         model: Optional[str] = None,
+        tenant: Optional[str] = None,
+        wal_sync_interval: float = 0.0,
     ):
+        self.tenant = tenant
+        self.wal_sync_interval = wal_sync_interval
+
+        # Physical partition for tenant isolation
+        if self.tenant:
+            storage_dir = os.path.join(storage_dir, "tenants", self.tenant)
+
         self.storage_dir = os.path.abspath(storage_dir)
         self.dim = dim
         self.epoch_duration_secs = epoch_duration_secs
@@ -78,7 +87,10 @@ class EpochDB:
         self.lock.acquire()
 
         # --- WAL ---
-        self.wal = WriteAheadLog(os.path.join(self.storage_dir, "wal.jsonl"))
+        self.wal = WriteAheadLog(
+            os.path.join(self.storage_dir, "wal.jsonl"),
+            sync_interval=self.wal_sync_interval
+        )
 
         # --- Global Entity Index (Disk-Direct) ---
         self.global_kg_db = os.path.join(self.storage_dir, "global_kg.db")
@@ -116,7 +128,8 @@ class EpochDB:
 
     def get_total_atoms(self) -> int:
         """Returns the total number of atoms across both hot and cold tiers."""
-        return len(self.hot_tier.atoms) + self.cold_tier.get_total_atoms()
+        with self._internal_lock:
+            return len(self.hot_tier.atoms) + self.cold_tier.get_total_atoms()
 
     # -------------------------------------------------------------------------
     # Context Manager Support
@@ -177,46 +190,47 @@ class EpochDB:
         atom_id: Optional[str] = None,
     ) -> str:
         """Store a new memory atom with its embedding and optional KG triples."""
-        if triples is None:
-            triples = []
+        with self._internal_lock:
+            if triples is None:
+                triples = []
 
-        # Ensure embedding is unit-length for consistent cosine similarity.
-        if embedding is None:
-            embedding = np.zeros(self.dim, dtype=np.float32)
-        
-        norm = np.linalg.norm(embedding)
-        if norm > 1e-10:
-            embedding = embedding / norm
+            # Ensure embedding is unit-length for consistent cosine similarity.
+            if embedding is None:
+                embedding = np.zeros(self.dim, dtype=np.float32)
+            
+            norm = np.linalg.norm(embedding)
+            if norm > 1e-10:
+                embedding = embedding / norm
 
-        # Assign strictly monotonic timestamp
-        ts = max(time.time(), self._last_timestamp + 0.000001)
-        self._last_timestamp = ts
+            # Assign strictly monotonic timestamp
+            ts = max(time.time(), self._last_timestamp + 0.000001)
+            self._last_timestamp = ts
 
-        atom_kwargs = {
-            "payload": payload,
-            "embedding": embedding,
-            "triples": triples,
-            "epoch_id": self.current_epoch_id,
-            "created_at": ts,
-        }
-        if atom_id is not None:
-            atom_kwargs["id"] = atom_id
-        atom = UnifiedMemoryAtom(**atom_kwargs)
+            atom_kwargs = {
+                "payload": payload,
+                "embedding": embedding,
+                "triples": triples,
+                "epoch_id": self.current_epoch_id,
+                "created_at": ts,
+            }
+            if atom_id is not None:
+                atom_kwargs["id"] = atom_id
+            atom = UnifiedMemoryAtom(**atom_kwargs)
 
-        # ACID Multi-Index Transaction.
-        with MultiIndexTransaction(self.wal, self.hot_tier) as tx:
-            tx.add(atom)
+            # ACID Multi-Index Transaction.
+            with MultiIndexTransaction(self.wal, self.hot_tier) as tx:
+                tx.add(atom)
 
-        # Update Global Entity Index.
-        associations = []
-        for subj, pred, obj in triples:
-            for entity in (subj, pred, obj):
-                associations.append((entity, atom.id, self.current_epoch_id))
-            self.predicates.add(pred)
-        
-        self.kg_manager.add_associations_batch(associations)
-        self._check_epoch_expiry()
-        return atom.id
+            # Update Global Entity Index.
+            associations = []
+            for subj, pred, obj in triples:
+                for entity in (subj, pred, obj):
+                    associations.append((entity, atom.id, self.current_epoch_id))
+                self.predicates.add(pred)
+            
+            self.kg_manager.add_associations_batch(associations)
+            self._check_epoch_expiry()
+            return atom.id
 
     def add_memory_batch(
         self,
@@ -242,15 +256,16 @@ class EpochDB:
                  "embedding": emb_b},
             ])
         """
-        ids = []
-        for item in items:
-            atom_id = self.add_memory(
-                payload=item["payload"],
-                embedding=item["embedding"],
-                triples=item.get("triples", []),
-            )
-            ids.append(atom_id)
-        return ids
+        with self._internal_lock:
+            ids = []
+            for item in items:
+                atom_id = self.add_memory(
+                    payload=item["payload"],
+                    embedding=item["embedding"],
+                    triples=item.get("triples", []),
+                )
+                ids.append(atom_id)
+            return ids
 
     def recall(
         self,
@@ -261,15 +276,16 @@ class EpochDB:
         fork_id: Optional[str] = None,
     ) -> List[UnifiedMemoryAtom]:
         """Query memory using a dense embedding vector."""
-        results = self.retriever.search(
-            query_emb,
-            top_k=top_k,
-            expand_hops=expand_hops,
-            query_entities=query_entities,
-            fork_id=fork_id,
-        )
-        self._check_epoch_expiry()
-        return results
+        with self._internal_lock:
+            results = self.retriever.search(
+                query_emb,
+                top_k=top_k,
+                expand_hops=expand_hops,
+                query_entities=query_entities,
+                fork_id=fork_id,
+            )
+            self._check_epoch_expiry()
+            return results
 
     def query_temporal(self, atom_id: str, timestamp: float, fork_id: Optional[str] = None) -> Optional[Dict[str, float]]:
         """Interpolate series value at a specific timestamp with uncertainty propagation."""
@@ -295,31 +311,35 @@ class EpochDB:
 
     def get_entities(self, prefix: str = None) -> List[str]:
         """Fetch all entities or those matching a prefix."""
-        if prefix:
-            return self.kg_manager.get_entities_by_prefix(prefix)
-        return self.kg_manager.get_all_entities()
+        with self._internal_lock:
+            if prefix:
+                return self.kg_manager.get_entities_by_prefix(prefix)
+            return self.kg_manager.get_all_entities()
 
     def claim_entity(self, entity: str, claimer: str, expiry_secs: int = 30) -> bool:
         """Atomically claim an entity for a period of time."""
-        return self.kg_manager.claim_entity(entity, claimer, expiry_secs)
+        with self._internal_lock:
+            return self.kg_manager.claim_entity(entity, claimer, expiry_secs)
 
     def unclaim_entity(self, entity: str, claimer: str) -> bool:
         """Release an atomic claim."""
-        return self.kg_manager.unclaim_entity(entity, claimer)
+        with self._internal_lock:
+            return self.kg_manager.unclaim_entity(entity, claimer)
 
     def get_entity_history(self, entity: str) -> List[UnifiedMemoryAtom]:
         """Retrieve all memory atoms associated with an entity, sorted by time."""
-        lineage = self.kg_manager.get_lineage(entity)
-        atoms = []
-        for atom_id, epoch_id in lineage:
-            # Try hot tier first
-            atom = self.hot_tier.atoms.get(atom_id)
-            if not atom:
-                # Fallback to cold tier (simplified fetch)
-                atom = self.retriever._fetch_atom_by_id(atom_id, epoch_id)
-            if atom:
-                atoms.append(atom)
-        return sorted(atoms, key=lambda x: x.created_at)
+        with self._internal_lock:
+            lineage = self.kg_manager.get_lineage(entity)
+            atoms = []
+            for atom_id, epoch_id in lineage:
+                # Try hot tier first
+                atom = self.hot_tier.atoms.get(atom_id)
+                if not atom:
+                    # Fallback to cold tier (simplified fetch)
+                    atom = self.retriever._fetch_atom_by_id(atom_id, epoch_id)
+                if atom:
+                    atoms.append(atom)
+            return sorted(atoms, key=lambda x: x.created_at)
 
     def save_state(self, key: str, payload: Any, parent_key: str = None) -> str:
         """
@@ -327,70 +347,72 @@ class EpochDB:
         Creates a 'STATE' entity link and optional parent link for lineage.
         Uses dummy embedding (zero vector) as state is usually retrieved via KG.
         """
-        triples = [(key, "is_state", "True")]
-        if parent_key:
-            triples.append((key, "parent_state", parent_key))
-        
-        # Use a small dummy embedding for state atoms
-        dummy_emb = np.zeros(self.dim, dtype=np.float32)
-        return self.add_memory(payload, dummy_emb, triples)
+        with self._internal_lock:
+            triples = [(key, "is_state", "True")]
+            if parent_key:
+                triples.append((key, "parent_state", parent_key))
+            
+            # Use a small dummy embedding for state atoms
+            dummy_emb = np.zeros(self.dim, dtype=np.float32)
+            return self.add_memory(payload, dummy_emb, triples)
 
     def extract_entities(self, text: str) -> List[str]:
         """Heuristically extract entities from text that exist in Global KG."""
-        found = set()
-        text_l = text.lower()
-        # Clean possessives and punctuation
-        clean_text = text_l.replace("'s", "").replace("?", "").replace(".", "").replace(",", "")
-        words = {w.strip() for w in clean_text.split() if len(w) > 2}
+        with self._internal_lock:
+            found = set()
+            text_l = text.lower()
+            # Clean possessives and punctuation
+            clean_text = text_l.replace("'s", "").replace("?", "").replace(".", "").replace(",", "")
+            words = {w.strip() for w in clean_text.split() if len(w) > 2}
 
-        # Expanded blacklist – generic conversational pronouns/determiners (EN + PT)
-        blacklist = {"user", "agent", "the", "this", "that", "it", "i", "my", "me",
-                     "they", "their", "who", "what", "where", "when", "how",
-                     "o", "a", "os", "as", "eu", "meu", "minha", "eles", "elas",
-                     "quem", "que", "onde", "quando", "como", "esta", "essa", "aquela"}
+            # Expanded blacklist – generic conversational pronouns/determiners (EN + PT)
+            blacklist = {"user", "agent", "the", "this", "that", "it", "i", "my", "me",
+                         "they", "their", "who", "what", "where", "when", "how",
+                         "o", "a", "os", "as", "eu", "meu", "minha", "eles", "elas",
+                         "quem", "que", "onde", "quando", "como", "esta", "essa", "aquela"}
 
-        # Get significant words for candidates LIKE query
-        sig_words = [w for w in words if w not in blacklist and len(w) > 3]
-        candidates = self.kg_manager.get_candidate_entities(sig_words)
+            # Get significant words for candidates LIKE query
+            sig_words = [w for w in words if w not in blacklist and len(w) > 3]
+            candidates = self.kg_manager.get_candidate_entities(sig_words)
 
-        # --- Pass 1: Subjects/Objects must appear in the query ---
-        for ent in candidates:
-            ent_l = ent.lower()
-            ent_parts = [p for p in ent_l.replace("-", " ").split() if len(p) > 3]
-            if ent_l in clean_text or any(p in words for p in ent_parts):
-                found.add(ent)
-                continue
-
-            # 2. Acronym Match: if entity name contains "(XYZ)", match "xyz" in query
-            if "(" in ent_l and ")" in ent_l:
-                acronym = ent_l[ent_l.find("(")+1:ent_l.find(")")]
-                if len(acronym) >= 2 and acronym in words:
+            # --- Pass 1: Subjects/Objects must appear in the query ---
+            for ent in candidates:
+                ent_l = ent.lower()
+                ent_parts = [p for p in ent_l.replace("-", " ").split() if len(p) > 3]
+                if ent_l in clean_text or any(p in words for p in ent_parts):
                     found.add(ent)
                     continue
-            
-            # 3. Technical Phrase Match: for multi-word entities, match if significant parts are in query
-            if " " in ent_l:
-                ent_parts = [p for p in ent_l.split() if len(p) > 3 and p not in blacklist]
-                if ent_parts:
-                    matches = sum(1 for p in ent_parts if p in clean_text)
-                    if matches / len(ent_parts) >= 0.5:
+
+                # 2. Acronym Match: if entity name contains "(XYZ)", match "xyz" in query
+                if "(" in ent_l and ")" in ent_l:
+                    acronym = ent_l[ent_l.find("(")+1:ent_l.find(")")]
+                    if len(acronym) >= 2 and acronym in words:
                         found.add(ent)
                         continue
+                
+                # 3. Technical Phrase Match: for multi-word entities, match if significant significant parts are in query
+                if " " in ent_l:
+                    ent_parts = [p for p in ent_l.split() if len(p) > 3 and p not in blacklist]
+                    if ent_parts:
+                        matches = sum(1 for p in ent_parts if p in clean_text)
+                        if matches / len(ent_parts) >= 0.5:
+                            found.add(ent)
+                            continue
 
-        # --- Pass 2: Predicates — substring + cautious prefix fuzzy ---
-        for pred in self.predicates:
-            pred_l = pred.lower()
-            if pred_l in clean_text:
-                found.add(pred)
-                continue
-            pred_parts = {p.strip() for p in pred_l.replace("_", " ").split() if len(p) > 3}
-            for part in pred_parts:
-                root = part[:4]
-                if any(root in w for w in words):
+            # --- Pass 2: Predicates — substring + cautious prefix fuzzy ---
+            for pred in self.predicates:
+                pred_l = pred.lower()
+                if pred_l in clean_text:
                     found.add(pred)
-                    break
+                    continue
+                pred_parts = {p.strip() for p in pred_l.replace("_", " ").split() if len(p) > 3}
+                for part in pred_parts:
+                    root = part[:4]
+                    if any(root in w for w in words):
+                        found.add(pred)
+                        break
 
-        return [f for f in found if f.lower() not in blacklist]
+            return [f for f in found if f.lower() not in blacklist]
 
     def recall_by_entity(self, entity: str) -> List[UnifiedMemoryAtom]:
         """Retrieve all memory atoms associated with a given entity."""
@@ -528,10 +550,11 @@ class EpochDB:
         Logs the branching event to the Knowledge Graph to maintain lineage without 
         duplicating massive vector stores.
         """
-        self.kg_manager.add_associations_batch([
-            (parent_epoch_id, "forked_to", new_epoch_id)
-        ])
-        logger.info(f"Forked epoch {parent_epoch_id} -> {new_epoch_id}")
+        with self._internal_lock:
+            self.kg_manager.add_associations_batch([
+                (parent_epoch_id, "forked_to", new_epoch_id)
+            ])
+            logger.info(f"Forked epoch {parent_epoch_id} -> {new_epoch_id}")
 
     # -------------------------------------------------------------------------
     # Epoch Lifecycle
@@ -550,19 +573,20 @@ class EpochDB:
         has been successfully written. If the flush fails, the WAL is preserved
         for crash recovery on the next startup.
         """
-        logger.info(
-            f"Triggering Asynchronous Epoch Checkpoint for {self.current_epoch_id}"
-        )
+        with self._internal_lock:
+            logger.info(
+                f"Triggering Asynchronous Epoch Checkpoint for {self.current_epoch_id}"
+            )
 
-        atoms_to_flush = list(self.hot_tier.atoms.values())
-        epoch_to_flush = self.current_epoch_id
+            atoms_to_flush = list(self.hot_tier.atoms.values())
+            epoch_to_flush = self.current_epoch_id
 
-        # Start a new Epoch immediately (synchronous).
-        self.current_epoch_id = f"epoch_{uuid.uuid4().hex[:8]}"
-        self.epoch_start_time = time.time()
+            # Start a new Epoch immediately (synchronous).
+            self.current_epoch_id = f"epoch_{uuid.uuid4().hex[:8]}"
+            self.epoch_start_time = time.time()
 
-        # Clear the Hot Tier immediately so new writes go to the fresh epoch.
-        self.hot_tier.clear()
+            # Clear the Hot Tier immediately so new writes go to the fresh epoch.
+            self.hot_tier.clear()
 
         # Flush to disk asynchronously.
         # WAL is cleared in the thread ONLY after a successful write.
@@ -590,23 +614,24 @@ class EpochDB:
 
     def force_checkpoint(self):
         """Manually trigger a synchronous checkpoint (useful for testing)."""
-        logger.info(
-            f"Triggering Synchronous Epoch Checkpoint for {self.current_epoch_id}"
-        )
+        with self._internal_lock:
+            logger.info(
+                f"Triggering Synchronous Epoch Checkpoint for {self.current_epoch_id}"
+            )
 
-        atoms_to_flush = list(self.hot_tier.atoms.values())
-        epoch_to_flush = self.current_epoch_id
+            atoms_to_flush = list(self.hot_tier.atoms.values())
+            epoch_to_flush = self.current_epoch_id
 
-        self.current_epoch_id = f"epoch_{uuid.uuid4().hex[:8]}"
-        self.epoch_start_time = time.time()
+            self.current_epoch_id = f"epoch_{uuid.uuid4().hex[:8]}"
+            self.epoch_start_time = time.time()
 
-        self.hot_tier.clear()
+            self.hot_tier.clear()
 
-        if atoms_to_flush:
-            self.cold_tier.serialize_epoch(epoch_to_flush, atoms_to_flush)
+            if atoms_to_flush:
+                self.cold_tier.serialize_epoch(epoch_to_flush, atoms_to_flush)
 
-        # Synchronous: safe to clear WAL immediately after write.
-        self.wal.clear()
+            # Synchronous: safe to clear WAL immediately after write.
+            self.wal.clear()
 
     # -------------------------------------------------------------------------
     # Persistence Helpers
@@ -622,14 +647,15 @@ class EpochDB:
 
     def flush(self):
         """Synchronously flush current hot tier to cold tier."""
-        atoms = list(self.hot_tier.atoms.values())
-        if atoms:
-            logger.info(f"Synchronously flushing {len(atoms)} atoms to cold tier...")
-            self.cold_tier.serialize_epoch(self.current_epoch_id, atoms)
-            self.wal.clear()
-            self.hot_tier.clear()
-            self.current_epoch_id = f"epoch_{uuid.uuid4().hex[:8]}"
-            self.epoch_start_time = time.time()
+        with self._internal_lock:
+            atoms = list(self.hot_tier.atoms.values())
+            if atoms:
+                logger.info(f"Synchronously flushing {len(atoms)} atoms to cold tier...")
+                self.cold_tier.serialize_epoch(self.current_epoch_id, atoms)
+                self.wal.clear()
+                self.hot_tier.clear()
+                self.current_epoch_id = f"epoch_{uuid.uuid4().hex[:8]}"
+                self.epoch_start_time = time.time()
 
     def close(self):
         """Flush all pending state and release resources."""
