@@ -1,6 +1,10 @@
 
 <p align="center">
-  <img src="logo-epoch.png" alt="EpochDB Logo" width="180" />
+  <img
+    src="https://raw.githubusercontent.com/jersobh/epochdb/main/logo-epoch.png"
+    alt="EpochDB Logo"
+    width="180"
+  />
 </p>
 
 # EpochDB — Agentic Memory Engine [![PyPI Downloads](https://static.pepy.tech/personalized-badge/epochdb?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/epochdb)
