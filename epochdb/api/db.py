@@ -83,6 +83,8 @@ class EpochDB(EngineEpochDB):
         embedding_model: Optional[str] = None,
         auto_flush: bool = True,
         dim: int = 384,
+        tenant: Optional[str] = None,
+        wal_sync_interval: float = 0.0,
         **kwargs
     ):
         self.auto_flush = auto_flush
@@ -94,6 +96,8 @@ class EpochDB(EngineEpochDB):
             storage_dir=storage_dir,
             dim=dim,
             model=embedding_model,
+            tenant=tenant,
+            wal_sync_interval=wal_sync_interval,
             **kwargs
         )
 
