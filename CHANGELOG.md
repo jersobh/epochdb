@@ -6,6 +6,15 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.0.4] - 2026-06-22
+### Added
+- **Local Model Caching**: Added automatic caching of SentenceTransformers local embedding models to `~/.cache/epochdb_models/{safe_model_name}`. The engine will download the model only on the first run and load it locally thereafter, avoiding repeated downloads. Also added a `model_cache_path` configuration parameter to support custom model cache directories.
+- **Model Name Normalization**: Automatically normalizes unicode non-breaking hyphens and dashes (such as `\u2011`) in model names to standard ASCII hyphens to prevent Hugging Face Hub validation failures.
+
+### Changed
+- **Optional Dependencies**: Made `google-genai` an optional dependency (moved to `[project.optional-dependencies]` under `google`). It is no longer installed by default with core dependencies.
+- **Default Model**: Changed the default embedding model to the local lightweight model `"all-MiniLM-L6-v2"`.
+
 ## [1.0.3] - 2026-06-19
 ### Added
 - **Client-Server Architecture**: Introduced `RemoteEpochDB` (in `epochdb/api/client.py`) and a multi-threaded HTTP server `ThreadingEpochDBServer` (in `epochdb/api/server.py`) to run and communicate with a remote instance of EpochDB using HTTP REST endpoints.
