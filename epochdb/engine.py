@@ -45,9 +45,10 @@ class EpochDB:
         epoch_duration_secs: int = 3600,
         saliency_threshold: float = 0.1,
         hot_tier_capacity: int = 10_000,
-        model: Optional[str] = None,
+        model: Optional[str] = "all-MiniLM-L6-v2",
         tenant: Optional[str] = None,
         wal_sync_interval: float = 0.0,
+        model_cache_path: Optional[str] = None,
     ):
         self.tenant = tenant
         self.wal_sync_interval = wal_sync_interval
@@ -61,6 +62,7 @@ class EpochDB:
         self.epoch_duration_secs = epoch_duration_secs
         self.saliency_threshold = saliency_threshold
         self._model_name = model
+        self._model_cache_path = model_cache_path
         self._embedder = None  # Lazy-loaded on first use.
         self._internal_lock = threading.RLock() # Protect against concurrent threads in the same process
 
@@ -454,8 +456,12 @@ class EpochDB:
                     "No embedding model configured. Pass model='all-MiniLM-L6-v2' "
                     "(or any SentenceTransformer model name) to EpochDB.__init__."
                 )
-            if self._model_name.startswith("google:"):
-                model_id = self._model_name.split("google:", 1)[-1]
+            
+            # Normalize common copy-paste Unicode characters (like non-breaking hyphens)
+            normalized_model_name = self._model_name.replace("\u2011", "-").replace("\u2013", "-").replace("\u2014", "-")
+            
+            if normalized_model_name.startswith("google:"):
+                model_id = normalized_model_name.split("google:", 1)[-1]
                 self._embedder = GoogleEmbedder(model_id, dim=self.dim)
             else:
                 try:
@@ -465,7 +471,21 @@ class EpochDB:
                         "sentence-transformers is required for auto-embedding. "
                         "Install it with: pip install epochdb[embeddings]"
                     )
-                self._embedder = SentenceTransformer(self._model_name)
+                # Check for cached local model to avoid downloading on every run
+                safe_model_name = normalized_model_name.replace("/", "_")
+                if self._model_cache_path:
+                    cache_dir = os.path.join(self._model_cache_path, safe_model_name)
+                else:
+                    cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "epochdb_models", safe_model_name)
+                if os.path.exists(cache_dir):
+                    self._embedder = SentenceTransformer(cache_dir)
+                else:
+                    self._embedder = SentenceTransformer(normalized_model_name)
+                    try:
+                        os.makedirs(os.path.dirname(cache_dir), exist_ok=True)
+                        self._embedder.save(cache_dir)
+                    except Exception as e:
+                        logger.warning(f"Could not save local model cache to {cache_dir}: {e}")
         return self._embedder
 
     def remember(self, text: str, triples: List[tuple] = None) -> str:
@@ -748,7 +768,13 @@ class GoogleEmbedder:
     def _get_client(self):
         if self._client is None:
             import os
-            from google import genai
+            try:
+                from google import genai
+            except ImportError:
+                raise ImportError(
+                    "google-genai is required to use GoogleEmbedder. "
+                    "Install it with: pip install epochdb[google]"
+                )
             api_key = os.getenv("GEMINI_API_KEY")
             if not api_key:
                 raise ValueError("GEMINI_API_KEY not found in environment.")
