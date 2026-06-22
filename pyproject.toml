@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "epochdb"
-version = "1.0.3"
+version = "1.0.4"
 description = "An agentic memory engine designed for lossless, tiered verbatim storage and multi-hop retrieval."
 readme = "README.md"
 license = "MIT"
@@ -29,10 +29,12 @@ dependencies = [
     "z3-solver",
     "intervaltree",
     "pint",
-    "google-genai (>=2.8.0,<3.0.0)",
 ]
 
 [project.optional-dependencies]
+# Google GenAI support.
+google = ["google-genai (>=2.8.0,<3.0.0)"]
+
 # Auto-embedding convenience (remember / recall_text).
 embeddings = ["sentence-transformers"]
 
@@ -40,10 +42,10 @@ embeddings = ["sentence-transformers"]
 langgraph = ["langgraph"]
 
 # Install everything (recommended for most agent use-cases).
-all = ["sentence-transformers", "langgraph"]
+all = ["sentence-transformers", "langgraph", "google-genai (>=2.8.0,<3.0.0)"]
 
 # Development tools.
-dev = ["pytest", "sentence-transformers", "langgraph"]
+dev = ["pytest", "sentence-transformers", "langgraph", "google-genai (>=2.8.0,<3.0.0)"]
 
 [project.urls]
 "Homepage" = "https://github.com/jersobh/epochdb"
