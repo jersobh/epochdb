@@ -8,7 +8,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -46,6 +46,7 @@ jobs:
       name: pypi
       url: https://pypi.org/p/epochdb
     permissions:
+      contents: write  # Required to upload assets to GitHub Release
       id-token: write  # Required for OIDC trusted publishing
 
     steps:
@@ -56,6 +57,13 @@ jobs:
         path: dist/
 
     - name: Publish to PyPI via API Token
-      uses: pypa/github-action-pypi-publish@release/v1
+      uses: pypa/gh-action-pypi-publish@release/v1
       with:
         password: ${{ secrets.PYPI_API_TOKEN }}
+
+    - name: Create or Update GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: dist/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
