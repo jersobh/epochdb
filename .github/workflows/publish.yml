@@ -55,5 +55,7 @@ jobs:
         name: python-package-distributions
         path: dist/
 
-    - name: Publish to PyPI via Trusted Publisher
+    - name: Publish to PyPI via API Token
       uses: pypa/github-action-pypi-publish@release/v1
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}
