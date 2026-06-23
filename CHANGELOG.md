@@ -6,6 +6,15 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.1.0] - 2026-06-23
+### Added
+- **LangChain & LangGraph Integrations**:
+  - **Structured Agent Tools**: Added `get_epochdb_tools(db)` in `epochdb.tools` creating 7 custom `StructuredTool` objects for agents to read, write, update, delete, and inspect memory atoms and graphs.
+  - **Native VectorStore (`EpochDBVectorStore`)**: Custom `VectorStore` wrapper in `epochdb.vectorstore` for standard LangChain similarity search with optional cosine score recalculation.
+  - **Custom Multi-Hop Retriever (`EpochDBMultiHopRetriever`)**: Custom LangChain `BaseRetriever` exposing multi-hop relational search directly as a retrieval step.
+  - Full compatibility with both sync (`EpochDB`) and async (`AsyncEpochDB`) interfaces with safety locks and background threading.
+  - Added self-contained code examples under `examples/example_langchain.py`.
+
 ## [1.0.4] - 2026-06-22
 ### Added
 - **Local Model Caching**: Added automatic caching of SentenceTransformers local embedding models to `~/.cache/epochdb_models/{safe_model_name}`. The engine will download the model only on the first run and load it locally thereafter, avoiding repeated downloads. Also added a `model_cache_path` configuration parameter to support custom model cache directories.
