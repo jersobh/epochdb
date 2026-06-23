@@ -6,7 +6,7 @@
 
 All notable changes to EpochDB will be documented in this file.
 
-## [1.1.0] - 2026-06-23
+## [1.1.1] - 2026-06-23
 ### Added
 - **LangChain & LangGraph Integrations**:
   - **Structured Agent Tools**: Added `get_epochdb_tools(db)` in `epochdb.tools` creating 7 custom `StructuredTool` objects for agents to read, write, update, delete, and inspect memory atoms and graphs.
@@ -14,6 +14,10 @@ All notable changes to EpochDB will be documented in this file.
   - **Custom Multi-Hop Retriever (`EpochDBMultiHopRetriever`)**: Custom LangChain `BaseRetriever` exposing multi-hop relational search directly as a retrieval step.
   - Full compatibility with both sync (`EpochDB`) and async (`AsyncEpochDB`) interfaces with safety locks and background threading.
   - Added self-contained code examples under `examples/example_langchain.py`.
+
+### Changed
+- **CI/CD Pipeline**: Migrated the PyPI publishing workflow to Trusted Publishing (OIDC authentication via GitHub Actions), eliminating the need for PyPI API token secrets.
+
 
 ## [1.0.4] - 2026-06-22
 ### Added
