@@ -3,3 +3,11 @@ from epochdb.core.atom import UnifiedMemoryAtom
 from epochdb.api.client import RemoteEpochDB
 
 __all__ = ["EpochDB", "AsyncEpochDB", "Memory", "Entity", "Graph", "UnifiedMemoryAtom", "RemoteEpochDB"]
+
+try:
+    from epochdb.tools import get_epochdb_tools
+    from epochdb.vectorstore import EpochDBVectorStore, EpochDBMultiHopRetriever
+    __all__.extend(["get_epochdb_tools", "EpochDBVectorStore", "EpochDBMultiHopRetriever"])
+except ImportError:
+    pass
+
