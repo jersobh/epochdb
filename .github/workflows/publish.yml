@@ -56,10 +56,8 @@ jobs:
         name: python-package-distributions
         path: dist/
 
-    - name: Publish to PyPI via API Token
+    - name: Publish to PyPI via Trusted Publisher
       uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        password: ${{ secrets.PYPI_API_TOKEN }}
 
     - name: Create or Update GitHub Release
       uses: softprops/action-gh-release@v2
