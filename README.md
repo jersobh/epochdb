@@ -97,28 +97,40 @@ Precision metrics across Hot and Cold tiers:
 When used as a checkpointer, EpochDB keeps LangGraph states "thin" by storing historical turns as Unified Memory Atoms and querying them selectively. This achieves **linear $O(N)$ token scaling** (saving **55% to 79%** of input tokens compared to standard checkpointers' quadratic $O(N^2)$ accumulation).
 
 ### 4. Sync vs. Async Concurrency Benchmark
-This benchmark evaluates E2E latency and input token consumption under concurrent multi-user load, comparing three execution configurations using the live Gemini API (`gemini-embedding-2` and `gemini-3-flash-preview`):
+This benchmark evaluates E2E latency and input token consumption under concurrent multi-user load, comparing three execution configurations:
 1. **Sync LangGraph + Sync EpochDB**: Sequential graph invocation with blocking I/O.
 2. **Async LangGraph + Async EpochDB**: Concurrent graph execution (`ainvoke`) using async checkpointers and DB facades.
-3. **Async aster + EpochBlackboard**: Decoupled event-driven reactive coordination running in parallel.
+3. **Async Aster + EpochBlackboard**: Decoupled event-driven reactive coordination running in parallel.
 
-The scenario simulates **3 concurrent users** executing **3 conversation turns each** (9 turns total) over the live API:
+The scenario simulates **3 concurrent users** executing **10 conversation turns each** (30 turns total) over the live Gemini API:
+
+#### Configuration A: Cloud API Embeddings (`gemini-embedding-2` 3072D)
+Under this configuration, all text embedding vectors are generated remotely via the Gemini API, requiring sequential HTTP latency for embedding calls.
 
 | Metric | Sync LangGraph | Async LangGraph | Async Aster |
 | :--- | :---: | :---: | :---: |
 | **E2E Latency (seconds)** | 352.060s | 113.027s | 39.869s |
-| **Average Turn Latency** | 11735.3ms | 3767.6ms | 1329.0ms |
+| **Average Turn Latency** | 11,735.3ms | 3,767.6ms | 1,329.0ms |
 | **Throughput Speedup** | 1.00x (Baseline) | **3.11x** | **8.83x** |
 | **Total Input Tokens** | 28,385 | 24,145 | 21,932 |
 
-#### Key Insights
-- **Concurrency Speedup**: Sequential synchronous execution causes network and database blocking latency to scale linearly ($O(U \times T)$), taking nearly 6 minutes. Parallelizing requests via async facades collapses the total duration to approximately a single user's timeline.
-- **Event-Driven Aster**: Aster instantiates a pool of independent worker agents processing events in parallel tasks. This decoupled architecture achieves an **8.83x speedup** over the synchronous baseline, outperforming Async LangGraph by over **2.8x**.
-- **Context Size / Token Savings**: In longer sessions (10 turns), Aster's subgraph-based tiling achieves **9.2% token savings** over Async LangGraph. While OABS graph serialization (node properties, relation types, and lineage metadata serialized by `ContextTiler`) has a small formatting overhead, its subgraph-based tiling maintains flat prompt overhead as history scales, avoiding the linear growth of conversation context in standard systems.
+*Key Insight*: Remote embedding requests introduce sequential round-trip latency. In the sync baseline and standard async, these network calls pile up. Aster runs a decoupled event pool which hides network round-trip overhead through maximum event-driven parallelism (yielding **8.83x** speedup).
+
+#### Configuration B: Local Embeddings (`barisaydin/gte-base` 768D)
+Under this configuration, all text embedding vectors are generated locally using the SentenceTransformer model loaded in RAM, removing all network latency for embedding calls.
+
+| Metric | Sync LangGraph | Async LangGraph | Async Aster |
+| :--- | :---: | :---: | :---: |
+| **E2E Latency (seconds)** | 189.905s | 61.752s | 62.276s |
+| **Average Turn Latency** | 6,330.2ms | 2,058.4ms | 2,075.9ms |
+| **Throughput Speedup** | 1.00x (Baseline) | **3.08x** | **3.05x** |
+| **Total Input Tokens** | 24,765 | 22,774 | 25,705 |
+
+*Key Insight*: Eliminating remote embedding API calls slashes E2E latency across all configurations. The async pipeline collapses the blocking network time of LLM text generation down to a single user's duration (~60s), showing a clean **3.08x** speedup.
 
 *Run the benchmark suite locally:*
 ```bash
-poetry run python examples/sync_async_benchmark.py
+.venv/bin/python examples/sync_async_benchmark.py
 ```
 
 ---

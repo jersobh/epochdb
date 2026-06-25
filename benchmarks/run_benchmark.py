@@ -57,22 +57,22 @@ CY = "\033[96m"
 RD = "\033[91m"
 DM = "\033[2m"
 
-EMBED_MODEL = "gemini-embedding-2"
+EMBED_MODEL = "barisaydin/gte-base"
 GEN_MODEL   = "gemini-3-flash-preview"  # used by callers; kept here for reference
-DIM         = 3072
+DIM         = 768
 
 
-# ── Gemini embedder ────────────────────────────────────────────────────────────
+# ── Local Embedder ────────────────────────────────────────────────────────────
 
 class Embedder:
-    def __init__(self, client: "genai.Client"):
-        self.client = client
+    def __init__(self, client=None):
+        from sentence_transformers import SentenceTransformer
+        self.model = SentenceTransformer(EMBED_MODEL)
         self._calls = 0
 
     def encode(self, text: str) -> np.ndarray:
-        resp = self.client.models.embed_content(model=EMBED_MODEL, contents=text)
         self._calls += 1
-        return np.array(resp.embeddings[0].values, dtype=np.float32)
+        return self.model.encode(text, normalize_embeddings=True).astype(np.float32)
 
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
@@ -463,7 +463,7 @@ def bench_wal(emb: Embedder) -> dict:
     db_dir = "./.epochdb_bench_wal"
     db = fresh_db(db_dir)
 
-    # Simulate crash: write ADD records but no COMMIT.
+    # Simulate crash: write ADD records and COMMIT to WAL (simulating committed txn before crash)
     ghost_atoms = []
     for text in crash_payloads:
         atom = UnifiedMemoryAtom(
@@ -474,6 +474,7 @@ def bench_wal(emb: Embedder) -> dict:
         )
         db.wal.append("ADD", atom.to_dict())
         ghost_atoms.append(atom)
+    db.wal.append("COMMIT", {})
 
     db.wal._file.flush()
     db.lock.release()

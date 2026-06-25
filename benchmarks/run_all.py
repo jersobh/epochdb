@@ -103,8 +103,8 @@ def init_db(storage_dir: str, dim: int, async_mode: bool):
         return EpochDB(storage_dir=storage_dir, dim=dim)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-EMBED_MODEL = "gemini-embedding-2"
-DIM         = 3072
+EMBED_MODEL = "barisaydin/gte-base"
+DIM         = 768
 STORAGE_DIR = "./.epochdb_run_all"
 
 R  = "\033[0m"
@@ -116,17 +116,17 @@ CY = "\033[96m"
 DM = "\033[2m"
 
 
-# ── Gemini Embedder ────────────────────────────────────────────────────────────
+# ── Local Embedder ────────────────────────────────────────────────────────────
 
-class GeminiEmbedder:
-    def __init__(self, client: genai.Client):
-        self.client = client
+class LocalEmbedder:
+    def __init__(self, client=None):
+        from sentence_transformers import SentenceTransformer
+        self.model = SentenceTransformer(EMBED_MODEL)
         self._calls = 0
 
     def encode(self, text: str) -> np.ndarray:
-        resp = self.client.models.embed_content(model=EMBED_MODEL, contents=text)
         self._calls += 1
-        return np.array(resp.embeddings[0].values, dtype=np.float32)
+        return self.model.encode(text, normalize_embeddings=True).astype(np.float32)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -252,7 +252,7 @@ def main():
     print(  "  4 benchmarks · No external datasets required\n")
 
     client   = genai.Client(api_key=api_key)
-    embedder = GeminiEmbedder(client)
+    embedder = LocalEmbedder(client)
 
     if os.path.exists(STORAGE_DIR):
         shutil.rmtree(STORAGE_DIR)
