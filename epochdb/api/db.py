@@ -85,6 +85,9 @@ class EpochDB(EngineEpochDB):
         dim: int = 384,
         tenant: Optional[str] = None,
         wal_sync_interval: float = 0.0,
+        parquet_compression: str = "ZSTD",
+        parquet_compression_level: Optional[int] = None,
+        wal_use_uring: bool = True,
         **kwargs
     ):
         self.auto_flush = auto_flush
@@ -98,6 +101,9 @@ class EpochDB(EngineEpochDB):
             model=embedding_model,
             tenant=tenant,
             wal_sync_interval=wal_sync_interval,
+            parquet_compression=parquet_compression,
+            parquet_compression_level=parquet_compression_level,
+            wal_use_uring=wal_use_uring,
             **kwargs
         )
 
@@ -121,11 +127,8 @@ class EpochDB(EngineEpochDB):
                 payload=text,
                 embedding=embedding,
                 triples=triples,
+                metadata=metadata,
             )
-            atom = self.hot_tier.atoms[atom_id]
-            atom.metadata = metadata
-            self.wal.append("ADD", atom.to_dict())
-
             return atom_id
 
     def remember_batch(self, items: list) -> List[str]:
@@ -150,23 +153,21 @@ class EpochDB(EngineEpochDB):
             else:
                 embs = [np.zeros(self.dim, dtype=np.float32) for _ in texts]
 
-            ids = []
+            batch_items = []
             for i, (text, metadata) in enumerate(zip(texts, metadatas)):
                 triples = metadata.get("triples") or []
                 if not triples:
                     extracted = self.extract_entities(text)
                     triples = [(str(e), "mentions", str(e)) for e in extracted]
 
-                aid = self.add_memory(
-                    payload=text,
-                    embedding=embs[i],
-                    triples=triples,
-                )
-                atom = self.hot_tier.atoms[aid]
-                atom.metadata = metadata
-                self.wal.append("ADD", atom.to_dict())
-                ids.append(aid)
-            return ids
+                batch_items.append({
+                    "payload": text,
+                    "embedding": embs[i],
+                    "triples": triples,
+                    "metadata": metadata,
+                })
+
+            return self.add_memory_batch(batch_items)
 
     def get(self, memory_id: str) -> Optional[Memory]:
         """Retrieve a specific memory by its ID."""
@@ -416,6 +417,26 @@ class AsyncEpochDB:
     @property
     def dim(self) -> int:
         return self._get_db_sync().dim
+
+    @property
+    def parquet_compression(self) -> str:
+        return self._get_db_sync().parquet_compression
+
+    @parquet_compression.setter
+    def parquet_compression(self, value: str):
+        self._get_db_sync().parquet_compression = value
+
+    @property
+    def parquet_compression_level(self) -> Optional[int]:
+        return self._get_db_sync().parquet_compression_level
+
+    @parquet_compression_level.setter
+    def parquet_compression_level(self, value: Optional[int]):
+        self._get_db_sync().parquet_compression_level = value
+
+    @property
+    def wal_use_uring(self) -> bool:
+        return self._get_db_sync().wal_use_uring
 
     @property
     def _model_name(self) -> Optional[str]:
