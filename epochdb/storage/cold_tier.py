@@ -26,7 +26,7 @@ class ColdTier:
         storage_dir: str,
         index_cache_size: int = 10,
         compression: str = "ZSTD",
-        compression_level: Optional[int] = None,
+        compression_level: int = 3,
     ):
         self.storage_dir = storage_dir
         os.makedirs(self.storage_dir, exist_ok=True)
