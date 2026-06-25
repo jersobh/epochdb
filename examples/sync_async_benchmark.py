@@ -29,30 +29,35 @@ from typing import TypedDict, List, Dict, Any, Tuple
 warnings.filterwarnings("ignore", category=UserWarning)
 logging.basicConfig(level=logging.ERROR)
 
-# Setup path insertion for both local imports and the Astraea framework
+# Setup path insertion for both local imports and the Astraea/Aster framework
 current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(current_dir))
-
-for p in [
-    os.path.abspath(os.path.join(current_dir, "../../astraea_framework")),
-    "/home/jeff/Projects/astraea_framework"
-]:
-    if os.path.exists(p) and p not in sys.path:
-        sys.path.insert(0, p)
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "../")))
+sys.path.insert(1, os.path.abspath(os.path.join(current_dir, "../../astraea_framework")))
+sys.path.insert(2, "/home/jeff/Projects/astraea_framework")
+sys.path.insert(3, os.path.abspath(os.path.join(current_dir, "../../aster_framework")))
+sys.path.insert(4, os.path.abspath(os.path.join(current_dir, "../../aster-framework")))
+sys.path.insert(5, "/home/jeff/Projects/aster_framework")
+sys.path.insert(6, "/home/jeff/Projects/aster-framework")
 
 from epochdb import EpochDB, AsyncEpochDB
 from epochdb.checkpointer import EpochDBCheckpointer
 from langgraph.graph import StateGraph, END
 
-# Import Astraea framework components
+# Import Astraea/Aster framework components
 try:
-    from astraea import EpochBlackboard, EventRouter, Agent, Team
-    from astraea.tiler import ContextTiler
-    from astraea.types import BlackboardEvent, EventType, LineageContext
+    from aster import EpochBlackboard, EventRouter, Agent, Team
+    from aster.tiler import ContextTiler
+    from aster.types import BlackboardEvent, EventType, LineageContext
     HAS_ASTRAEA = True
-except ImportError as e:
-    HAS_ASTRAEA = False
-    print(f"Warning: Could not import Astraea: {e}")
+except ImportError:
+    try:
+        from astraea import EpochBlackboard, EventRouter, Agent, Team
+        from astraea.tiler import ContextTiler
+        from astraea.types import BlackboardEvent, EventType, LineageContext
+        HAS_ASTRAEA = True
+    except ImportError as e:
+        HAS_ASTRAEA = False
+        print(f"Warning: Could not import Astraea/Aster: {e}")
 
 # Try importing google-genai
 try:
@@ -68,9 +73,9 @@ STORAGE_DIR_SYNC = "./.epochdb_sync_lg"
 STORAGE_DIR_ASYNC = "./.epochdb_async_lg"
 STORAGE_DIR_ASTRAEA = "./.epochdb_async_astraea"
 
-EMBED_MODEL = "gemini-embedding-2"
+EMBED_MODEL = "barisaydin/gte-base"
 GEN_MODEL   = "gemini-3-flash-preview"
-DIM         = 3072
+DIM         = 768
 
 USER_NAMES = ["Alice", "Bob", "Charlie", "David", "Eve", "Frank", "Grace", "Henry", "Ivy", "Jack", "Kate", "Leo", "Mia", "Noah", "Olivia"]
 
@@ -179,49 +184,31 @@ def get_mock_response(prompt: str, turn_idx: int, user_name: str) -> str:
 
 # ── LLM Client Wrappers with OCC/Rate-Limit Retries ───────────────────────────
 
+_local_embedder = None
+
+def get_local_embedder():
+    global _local_embedder
+    if _local_embedder is None:
+        from sentence_transformers import SentenceTransformer
+        _local_embedder = SentenceTransformer(EMBED_MODEL)
+    return _local_embedder
+
 def sync_embed(client, text: str, live_mode: bool) -> list:
     if not live_mode:
         time.sleep(0.1)
         return get_mock_embedding(text)
     
-    import random
-    max_retries = 6
-    base_delay = 1.0
-    for attempt in range(max_retries):
-        try:
-            resp = client.models.embed_content(model=EMBED_MODEL, contents=text)
-            return resp.embeddings[0].values
-        except Exception as e:
-            err_str = str(e)
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "Resource exhausted" in err_str:
-                if attempt == max_retries - 1:
-                    raise e
-                delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                time.sleep(delay)
-            else:
-                raise e
+    embedder = get_local_embedder()
+    return embedder.encode(text, normalize_embeddings=True).tolist()
 
 async def async_embed(client, text: str, live_mode: bool) -> list:
     if not live_mode:
         await asyncio.sleep(0.1)
         return get_mock_embedding(text)
     
-    import random
-    max_retries = 6
-    base_delay = 1.0
-    for attempt in range(max_retries):
-        try:
-            resp = await client.aio.models.embed_content(model=EMBED_MODEL, contents=text)
-            return resp.embeddings[0].values
-        except Exception as e:
-            err_str = str(e)
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "Resource exhausted" in err_str:
-                if attempt == max_retries - 1:
-                    raise e
-                delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                await asyncio.sleep(delay)
-            else:
-                raise e
+    embedder = get_local_embedder()
+    emb = await asyncio.to_thread(embedder.encode, text, normalize_embeddings=True)
+    return emb.tolist()
 
 def sync_generate(client, prompt: str, turn_idx: int, user_name: str, live_mode: bool) -> str:
     if not live_mode:
