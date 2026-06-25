@@ -200,6 +200,11 @@ def test_fork(test_db):
 
 
 def test_custom_parquet_compression(storage_dir):
+    # Verify new default compression level is 3
+    db_default = EpochDB(storage_dir=storage_dir + "_default", dim=4)
+    assert db_default.parquet_compression_level == 3
+    db_default.close()
+
     # Initialize with SNAPPY and verify properties
     db = EpochDB(
         storage_dir=storage_dir,
