@@ -49,9 +49,13 @@ class EpochDB:
         tenant: Optional[str] = None,
         wal_sync_interval: float = 0.0,
         model_cache_path: Optional[str] = None,
+        parquet_compression: str = "ZSTD",
+        parquet_compression_level: Optional[int] = None,
+        wal_use_uring: bool = True,
     ):
         self.tenant = tenant
         self.wal_sync_interval = wal_sync_interval
+        self.wal_use_uring = wal_use_uring
 
         # Physical partition for tenant isolation
         if self.tenant:
@@ -91,7 +95,8 @@ class EpochDB:
         # --- WAL ---
         self.wal = WriteAheadLog(
             os.path.join(self.storage_dir, "wal.jsonl"),
-            sync_interval=self.wal_sync_interval
+            sync_interval=self.wal_sync_interval,
+            use_uring=self.wal_use_uring
         )
 
         # --- Global Entity Index (Disk-Direct) ---
@@ -105,7 +110,11 @@ class EpochDB:
 
         # --- Tiers ---
         self.hot_tier = HotTier(dim=self.dim, max_elements=hot_tier_capacity, storage_dir=self.storage_dir)
-        self.cold_tier = ColdTier(self.storage_dir)
+        self.cold_tier = ColdTier(
+            self.storage_dir,
+            compression=parquet_compression,
+            compression_level=parquet_compression_level,
+        )
 
         # --- Retrieval ---
         self.retriever = RetrievalManager(self.hot_tier, self.cold_tier, self.kg_manager)
@@ -132,6 +141,26 @@ class EpochDB:
         """Returns the total number of atoms across both hot and cold tiers."""
         with self._internal_lock:
             return len(self.hot_tier.atoms) + self.cold_tier.get_total_atoms()
+
+    @property
+    def parquet_compression(self) -> str:
+        """Returns the current Parquet compression method."""
+        return self.cold_tier.compression
+
+    @parquet_compression.setter
+    def parquet_compression(self, value: str):
+        """Sets a new Parquet compression method."""
+        self.cold_tier.compression = value
+
+    @property
+    def parquet_compression_level(self) -> Optional[int]:
+        """Returns the current Parquet compression level."""
+        return self.cold_tier.compression_level
+
+    @parquet_compression_level.setter
+    def parquet_compression_level(self, value: Optional[int]):
+        """Sets a new Parquet compression level."""
+        self.cold_tier.compression_level = value
 
     # -------------------------------------------------------------------------
     # Context Manager Support
@@ -190,6 +219,7 @@ class EpochDB:
         embedding: np.ndarray,
         triples: List[tuple] = None,
         atom_id: Optional[str] = None,
+        metadata: Optional[dict] = None,
     ) -> str:
         """Store a new memory atom with its embedding and optional KG triples."""
         with self._internal_lock:
@@ -217,6 +247,8 @@ class EpochDB:
             }
             if atom_id is not None:
                 atom_kwargs["id"] = atom_id
+            if metadata is not None:
+                atom_kwargs["metadata"] = metadata
             atom = UnifiedMemoryAtom(**atom_kwargs)
 
             # ACID Multi-Index Transaction.
@@ -245,6 +277,7 @@ class EpochDB:
           - ``payload``   (required) – the text or data to store.
           - ``embedding`` (required) – pre-computed numpy array.
           - ``triples``   (optional) – list of (subj, pred, obj) tuples.
+          - ``metadata``  (optional) – dict of associated metadata.
 
         Returns a list of atom IDs in the same order as `items`.
 
@@ -259,14 +292,56 @@ class EpochDB:
             ])
         """
         with self._internal_lock:
+            atoms = []
+            associations = []
             ids = []
-            for item in items:
-                atom_id = self.add_memory(
-                    payload=item["payload"],
-                    embedding=item["embedding"],
-                    triples=item.get("triples", []),
-                )
-                ids.append(atom_id)
+            
+            with MultiIndexTransaction(self.wal, self.hot_tier) as tx:
+                for item in items:
+                    payload = item["payload"]
+                    embedding = item["embedding"]
+                    triples = item.get("triples", [])
+                    metadata = item.get("metadata", {})
+                    atom_id = item.get("atom_id")
+
+                    if triples is None:
+                        triples = []
+
+                    # Ensure embedding is unit-length for consistent cosine similarity.
+                    if embedding is None:
+                        embedding = np.zeros(self.dim, dtype=np.float32)
+                    
+                    norm = np.linalg.norm(embedding)
+                    if norm > 1e-10:
+                        embedding = embedding / norm
+
+                    # Assign strictly monotonic timestamp
+                    ts = max(time.time(), self._last_timestamp + 0.000001)
+                    self._last_timestamp = ts
+
+                    atom_kwargs = {
+                        "payload": payload,
+                        "embedding": embedding,
+                        "triples": triples,
+                        "epoch_id": self.current_epoch_id,
+                        "created_at": ts,
+                        "metadata": metadata,
+                    }
+                    if atom_id is not None:
+                        atom_kwargs["id"] = atom_id
+                    
+                    atom = UnifiedMemoryAtom(**atom_kwargs)
+                    tx.add(atom)
+                    
+                    for subj, pred, obj in triples:
+                        for entity in (subj, pred, obj):
+                            associations.append((entity, atom.id, self.current_epoch_id))
+                        self.predicates.add(pred)
+                    
+                    ids.append(atom.id)
+
+            self.kg_manager.add_associations_batch(associations)
+            self._check_epoch_expiry()
             return ids
 
     def recall(
@@ -508,11 +583,15 @@ class EpochDB:
             embedder = self._get_embedder()
             embs = embedder.encode_batch(texts)
             
-            ids = []
+            items = []
             for i, text in enumerate(texts):
                 triples = triples_list[i] if triples_list and i < len(triples_list) else []
-                ids.append(self.add_memory(text, embs[i], triples))
-            return ids
+                items.append({
+                    "payload": text,
+                    "embedding": embs[i],
+                    "triples": triples,
+                })
+            return self.add_memory_batch(items)
 
     def forget(self, atom_id: str):
         """

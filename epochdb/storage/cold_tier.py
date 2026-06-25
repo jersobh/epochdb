@@ -21,11 +21,19 @@ class ColdTier:
     Uses Parquet format with Zstd compression and INT8 quantization.
     """
 
-    def __init__(self, storage_dir: str, index_cache_size: int = 10):
+    def __init__(
+        self,
+        storage_dir: str,
+        index_cache_size: int = 10,
+        compression: str = "ZSTD",
+        compression_level: Optional[int] = None,
+    ):
         self.storage_dir = storage_dir
         os.makedirs(self.storage_dir, exist_ok=True)
         self._index_cache: OrderedDict[str, hnswlib.Index] = OrderedDict()
         self.index_cache_size = index_cache_size
+        self.compression = compression
+        self.compression_level = compression_level
 
     def _get_index(self, epoch_id: str, dim: int) -> Optional[hnswlib.Index]:
         """Fetch index from cache or load from disk."""
@@ -142,7 +150,10 @@ class ColdTier:
  
         temp_file_path = file_path + ".tmp"
         try:
-            pq.write_table(table, temp_file_path, compression="ZSTD")
+            write_kwargs = {"compression": self.compression}
+            if self.compression_level is not None:
+                write_kwargs["compression_level"] = self.compression_level
+            pq.write_table(table, temp_file_path, **write_kwargs)
             os.replace(temp_file_path, file_path)
             logger.info(f"Serialized {len(atoms)} atoms to {file_path}")
         except Exception as e:

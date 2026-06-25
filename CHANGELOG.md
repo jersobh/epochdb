@@ -6,6 +6,14 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.2.0] - 2026-06-25
+### Added
+- **SQLite WAL Mode & Concurrency Tuning**: Enabled `PRAGMA journal_mode = WAL`, `PRAGMA synchronous = NORMAL`, and `PRAGMA busy_timeout = 5000` on the Global KG SQLite database connection to eliminate write locks and support concurrent reads.
+- **Engine-Level Transaction Batching**: Refactored bulk ingestion loops (`add_memory_batch` and `remember_batch`) to perform a single-commit operation, combining all Write-Ahead Log appends and SQLite Global KG index updates into a single transaction commit, resulting in up to **22x write speedups**.
+- **Robust io_uring Queue Backpressure**: Added automatic queue backpressure handling to the `io_uring` system-level WAL writer, preventing submission queue overflow on slow drives.
+- **Transactional Crash Recovery**: Implemented a strict transaction recovery parser that rolls back uncommitted writes at EOF while successfully replaying committed transaction blocks into the Hot Tier.
+- **Parquet Compression Configuration**: Added `parquet_compression` and `parquet_compression_level` options to both sync (`EpochDB`) and async (`AsyncEpochDB`) database instances to dynamically control compression method (e.g. snappy, zstd, gzip) and level on serialization.
+
 ## [1.1.1] - 2026-06-23
 ### Added
 - **LangChain & LangGraph Integrations**:

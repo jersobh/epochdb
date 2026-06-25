@@ -3,10 +3,55 @@ import json
 import logging
 import threading
 import time
+import subprocess
+import ctypes
 from typing import Dict, Any
 from datetime import datetime, date
 
 logger = logging.getLogger(__name__)
+
+# Compile and Load io_uring C Helper dynamically
+HELPER_SO = os.path.join(os.path.dirname(__file__), "uring_helper.so")
+HELPER_C = os.path.join(os.path.dirname(__file__), "uring_helper.c")
+
+_helper_loaded = False
+_lib = None
+
+def _compile_helper():
+    if not os.path.exists(HELPER_C):
+        return False
+    try:
+        cmd = [
+            "gcc", "-O3", "-shared", "-fPIC",
+            "-o", HELPER_SO, HELPER_C,
+            "-luring"
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        return res.returncode == 0
+    except Exception:
+        return False
+
+if not os.path.exists(HELPER_SO):
+    _compile_helper()
+
+if os.path.exists(HELPER_SO):
+    try:
+        _lib = ctypes.CDLL(HELPER_SO)
+        _lib.uring_writer_open.argtypes = [ctypes.c_char_p]
+        _lib.uring_writer_open.restype = ctypes.c_void_p
+        
+        _lib.uring_writer_write.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t, ctypes.c_int]
+        _lib.uring_writer_write.restype = ctypes.c_int
+        
+        _lib.uring_writer_reap_completions.argtypes = [ctypes.c_void_p]
+        _lib.uring_writer_reap_completions.restype = None
+        
+        _lib.uring_writer_close.argtypes = [ctypes.c_void_p]
+        _lib.uring_writer_close.restype = None
+        
+        _helper_loaded = True
+    except Exception as e:
+        logger.warning(f"Could not load uring_helper.so: {e}")
 
 
 def _pid_is_alive(pid: int) -> bool:
@@ -90,29 +135,77 @@ class FileLock:
             pass
 
 
+class WALFileWrapper:
+    def __init__(self, wal):
+        self._wal = wal
+
+    def flush(self):
+        with self._wal._lock:
+            if self._wal.uring_writer is None and self._wal._real_file:
+                try:
+                    self._wal._real_file.flush()
+                except Exception:
+                    pass
+
+    @property
+    def closed(self) -> bool:
+        if self._wal.uring_writer is not None:
+            return False
+        return self._wal._real_file.closed if self._wal._real_file else True
+
+    def write(self, data):
+        if self._wal.uring_writer is None and self._wal._real_file:
+            self._wal._real_file.write(data)
+
+    def close(self):
+        if self._wal.uring_writer is None and self._wal._real_file:
+            self._wal._real_file.close()
+
+    def fileno(self):
+        if self._wal.uring_writer is None and self._wal._real_file:
+            return self._wal._real_file.fileno()
+        return -1
+
+
 class WriteAheadLog:
     """Append-only JSONL log for crash recovery."""
 
-    def __init__(self, wal_path: str, sync_interval: float = 0.0):
+    def __init__(self, wal_path: str, sync_interval: float = 0.0, use_uring: bool = True):
         self.wal_path = wal_path
         self.sync_interval = sync_interval
-        self._file = open(self.wal_path, "a")
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._sync_thread = None
+        
+        self.uring_writer = None
+        if use_uring and _helper_loaded:
+            self.uring_writer = _lib.uring_writer_open(self.wal_path.encode('utf-8'))
+            
+        if self.uring_writer is None:
+            self._real_file = open(self.wal_path, "a")
+        else:
+            self._real_file = None
+
+        self._file_wrapper = WALFileWrapper(self)
 
         if self.sync_interval > 0.0:
             self._sync_thread = threading.Thread(target=self._periodic_sync, daemon=True)
             self._sync_thread.start()
 
+    @property
+    def _file(self):
+        return self._file_wrapper
+
     def _periodic_sync(self):
         while not self._stop_event.is_set():
             time.sleep(self.sync_interval)
             with self._lock:
-                if not self._file.closed:
+                if self.uring_writer is not None:
+                    _lib.uring_writer_reap_completions(self.uring_writer)
+                elif self._real_file and not self._real_file.closed:
                     try:
-                        self._file.flush()
-                        os.fsync(self._file.fileno())
+                        self._real_file.flush()
+                        os.fsync(self._real_file.fileno())
                     except Exception as e:
                         logger.error(f"Error during periodic WAL fsync: {e}")
 
@@ -123,14 +216,22 @@ class WriteAheadLog:
             raise TypeError(f"Type {type(obj)} not serializable")
 
         record = json.dumps({"op": operation, "data": data}, default=json_serial)
+        record_bytes = (record + "\n").encode('utf-8')
+        
         with self._lock:
-            self._file.write(record + "\n")
-            self._file.flush()
-            if self.sync_interval <= 0.0:
-                try:
-                    os.fsync(self._file.fileno())
-                except OSError as e:
-                    logger.error(f"Failed to fsync WAL: {e}")
+            if self.uring_writer is not None:
+                sync = 1 if self.sync_interval <= 0.0 else 0
+                _lib.uring_writer_write(self.uring_writer, record_bytes, len(record_bytes), sync)
+                if not sync:
+                    _lib.uring_writer_reap_completions(self.uring_writer)
+            else:
+                self._real_file.write(record + "\n")
+                self._real_file.flush()
+                if self.sync_interval <= 0.0:
+                    try:
+                        os.fsync(self._real_file.fileno())
+                    except OSError as e:
+                        logger.error(f"Failed to fsync WAL: {e}")
 
     def log_delete(self, atom_id: str):
         """Log a persistent delete operation."""
@@ -138,57 +239,66 @@ class WriteAheadLog:
 
     def replay(self) -> list:
         """
-        Read uncommitted ADD records from the WAL for crash recovery.
-        Returns a list of atom dicts that were written but never committed.
+        Read committed ADD records from the WAL for crash recovery.
+        Returns a list of atom dicts that were successfully committed.
         """
         if not os.path.exists(self.wal_path):
             return []
 
-        pending = []
+        committed = []
+        current_tx = []
         try:
-            with open(self.wal_path, "r") as f:
+            with open(self.wal_path, "r", errors="ignore") as f:
                 for line in f:
-                    line = line.strip()
+                    line = line.strip('\0 \n\r')
                     if not line:
                         continue
                     try:
                         record = json.loads(line)
                         op = record.get("op")
                         if op == "ADD":
-                            pending.append(record["data"])
+                            current_tx.append(record["data"])
                         elif op == "COMMIT":
-                            # COMMIT means the atoms were successfully committed, so we don't need to replay them.
-                            pending = []
+                            committed.extend(current_tx)
+                            current_tx = []
                         elif op == "ROLLBACK":
-                            # ROLLBACK means discard the pending atoms.
-                            pending = []
+                            current_tx = []
                     except json.JSONDecodeError:
                         continue
         except OSError as e:
             logger.error(f"Failed to read WAL for replay: {e}")
             return []
 
-        return pending
+        # Any uncommitted additions left in current_tx at EOF are discarded (rolled back).
+        return committed
 
     def close(self):
         if self._sync_thread:
             self._stop_event.set()
             self._sync_thread.join(timeout=1.0)
         with self._lock:
-            if not self._file.closed:
+            if self.uring_writer is not None:
+                _lib.uring_writer_close(self.uring_writer)
+                self.uring_writer = None
+            elif self._real_file and not self._real_file.closed:
                 try:
-                    self._file.flush()
-                    os.fsync(self._file.fileno())
+                    self._real_file.flush()
+                    os.fsync(self._real_file.fileno())
                 except Exception:
                     pass
-                self._file.close()
+                self._real_file.close()
 
     def clear(self):
         """Called upon successful Epoch Checkpoint."""
         with self._lock:
-            self._file.close()
-            open(self.wal_path, "w").close()
-            self._file = open(self.wal_path, "a")
+            if self.uring_writer is not None:
+                _lib.uring_writer_close(self.uring_writer)
+                open(self.wal_path, "w").close()
+                self.uring_writer = _lib.uring_writer_open(self.wal_path.encode('utf-8'))
+            else:
+                self._real_file.close()
+                open(self.wal_path, "w").close()
+                self._real_file = open(self.wal_path, "a")
 
 
 class MultiIndexTransaction:
