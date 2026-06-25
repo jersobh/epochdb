@@ -9,10 +9,9 @@
 
 # EpochDB — Agentic Memory Engine 
 
-[![PyPI Downloads](https://static.pepy.tech/personalized-badge/epochdb?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/epochdb)
-[![Publish](https://img.shields.io/github/actions/workflow/status/jersobh/epochdb/publish.yml)](https://github.com/jersobh/epochdb/actions/workflows/publish.yml)
-[![PyPI](https://img.shields.io/pypi/v/epochdb.svg)](https://pypi.org/project/epochdb/)
 [![Downloads](https://pepy.tech/badge/epochdb)](https://pepy.tech/project/epochdb)
+[![PyPI](https://img.shields.io/pypi/v/epochdb.svg)](https://pypi.org/project/epochdb/)
+[![Publish](https://img.shields.io/github/actions/workflow/status/jersobh/epochdb/publish.yml)](https://github.com/jersobh/epochdb/actions/workflows/publish.yml)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/jersobh/epochdb)](https://github.com/jersobh/epochdb/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Python Versions](https://img.shields.io/pypi/pyversions/epochdb)
