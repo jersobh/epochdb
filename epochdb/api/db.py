@@ -86,7 +86,7 @@ class EpochDB(EngineEpochDB):
         tenant: Optional[str] = None,
         wal_sync_interval: float = 0.0,
         parquet_compression: str = "ZSTD",
-        parquet_compression_level: Optional[int] = None,
+        parquet_compression_level: int = 3,
         wal_use_uring: bool = True,
         **kwargs
     ):
