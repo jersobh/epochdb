@@ -100,33 +100,45 @@ def test_dict_payload_roundtrip(test_db):
 
 def test_wal_replay_on_startup(storage_dir):
     """
-    Simulate a crash: write ADD records to the WAL but skip the COMMIT,
-    then re-open the DB and verify the atoms are recovered.
+    Simulate a crash: verify committed transactions are recovered,
+    while uncommitted ones are rolled back (ignored).
     """
     emb = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
-    # Step 1: Open DB and add a memory normally to create the metadata.
+    # Step 1: Open DB.
     db = EpochDB(storage_dir=storage_dir, dim=4)
-    # Manually write a "crashed" uncommitted ADD directly into the WAL.
     from epochdb.atom import UnifiedMemoryAtom
-    ghost_atom = UnifiedMemoryAtom(
-        payload="Recovered atom",
+    
+    # 1. Committed atom
+    committed_atom = UnifiedMemoryAtom(
+        payload="Committed recovered atom",
         embedding=emb,
         triples=[("ghost", "survived", "crash")],
         epoch_id=db.current_epoch_id,
     )
-    db.wal.append("ADD", ghost_atom.to_dict())
-    # Do NOT write COMMIT — simulates a mid-transaction crash.
+    db.wal.append("ADD", committed_atom.to_dict())
+    db.wal.append("COMMIT", {})
+    
+    # 2. Uncommitted atom (mid-transaction crash)
+    uncommitted_atom = UnifiedMemoryAtom(
+        payload="Uncommitted crashed atom",
+        embedding=emb,
+        triples=[("crashed", "died", "crash")],
+        epoch_id=db.current_epoch_id,
+    )
+    db.wal.append("ADD", uncommitted_atom.to_dict())
+    # Do NOT write COMMIT for this one
+    
     db.wal._file.flush()
     # Close without cleanup (simulate crash by only releasing the lock).
     db.lock.release()
     db.wal.close()
 
-    # Step 2: Re-open the DB — should replay the uncommitted ADD.
+    # Step 2: Re-open the DB — should replay only the committed one.
     db2 = EpochDB(storage_dir=storage_dir, dim=4)
-    assert any(
-        a.payload == "Recovered atom" for a in db2.hot_tier.atoms.values()
-    ), "WAL replay failed: atom not recovered."
+    recovered_payloads = [a.payload for a in db2.hot_tier.atoms.values()]
+    assert "Committed recovered atom" in recovered_payloads, "WAL replay failed: committed atom not recovered."
+    assert "Uncommitted crashed atom" not in recovered_payloads, "WAL replay failed: uncommitted atom was recovered."
     db2.close()
 
 
@@ -185,3 +197,34 @@ def test_fork(test_db):
         assoc[0] == "forked_to" and assoc[1] == child_id 
         for assoc in associations
     )
+
+
+def test_custom_parquet_compression(storage_dir):
+    # Initialize with SNAPPY and verify properties
+    db = EpochDB(
+        storage_dir=storage_dir,
+        dim=4,
+        parquet_compression="SNAPPY",
+        parquet_compression_level=None
+    )
+    assert db.parquet_compression == "SNAPPY"
+    assert db.parquet_compression_level is None
+    
+    # Change dynamically on the instance
+    db.parquet_compression = "ZSTD"
+    db.parquet_compression_level = 9
+    assert db.parquet_compression == "ZSTD"
+    assert db.parquet_compression_level == 9
+    
+    # Write to Parquet and verify round-trip
+    emb = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    db.add_memory("Test compression payload", emb)
+    db.force_checkpoint()
+    
+    # Verify we can recall it back correctly
+    results = db.recall(emb, top_k=1)
+    assert len(results) == 1
+    assert results[0].payload == "Test compression payload"
+    
+    db.close()
+

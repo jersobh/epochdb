@@ -271,6 +271,19 @@ By default, the Write-Ahead Log (WAL) synchronously forces an `fsync` call to di
 db = EpochDB(storage_dir="./memory", wal_sync_interval=0.1)
 ```
 
+### 3. Parquet Compression Configuration
+When serializing working memory from the Hot Tier (RAM) to the Cold Tier (disk Parquet files), you can define the compression algorithm and level:
+
+```python
+# Configure Zstandard compression (level 3) for disk archives
+db = EpochDB(storage_dir="./memory", parquet_compression="zstd", parquet_compression_level=3)
+```
+
+Supported methods include `"zstd"`, `"snappy"`, `"lz4"`, `"gzip"`, `"brotli"`, and `"none"` (defaulting to `"zstd"` with level `3`).
+
+### 4. High-Performance io_uring WAL
+On Linux hosts, EpochDB automatically compiles and loads a C shared library to write WAL appends through `io_uring` and Direct I/O (`O_DIRECT`), bypassing the kernel page cache and system call scheduling overhead to deliver up to **5x speedups** on synchronous operations with natural queue backpressure safety.
+
 ---
 
 ## LangGraph Integration
