@@ -1,8 +1,9 @@
 from epochdb.api.db import EpochDB, AsyncEpochDB, Memory, Entity, Graph
 from epochdb.core.atom import UnifiedMemoryAtom
-from epochdb.api.client import RemoteEpochDB
+from epochdb.api.client import RemoteEpochDB, AsyncRemoteEpochDB
 
-__all__ = ["EpochDB", "AsyncEpochDB", "Memory", "Entity", "Graph", "UnifiedMemoryAtom", "RemoteEpochDB"]
+__all__ = ["EpochDB", "AsyncEpochDB", "Memory", "Entity", "Graph", "UnifiedMemoryAtom", "RemoteEpochDB", "AsyncRemoteEpochDB"]
+
 
 try:
     from epochdb.tools import get_epochdb_tools
