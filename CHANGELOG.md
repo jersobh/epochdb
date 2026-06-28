@@ -6,6 +6,11 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.3.1] - 2026-06-28
+### Fixed
+- **get_entity_history Unpacking Error**: Fixed a critical ValueError where the 3-value lineage tuple `(atom_id, epoch_id, timestamp)` returned by the global KG manager was incorrectly unpacked into only 2 values, which caused timeline queries to crash.
+- **remember/AsyncEpochDB metadata parameter**: Restored the `metadata` keyword argument in `AsyncEpochDB.remember` and `EpochDB.remember` wrappers in `epochdb/engine.py` to match the core api specification, ensuring unified memory metadata attributes can be saved seamlessly from async callers.
+
 ## [1.2.0] - 2026-06-25
 ### Added
 - **SQLite WAL Mode & Concurrency Tuning**: Enabled `PRAGMA journal_mode = WAL`, `PRAGMA synchronous = NORMAL`, and `PRAGMA busy_timeout = 5000` on the Global KG SQLite database connection to eliminate write locks and support concurrent reads.

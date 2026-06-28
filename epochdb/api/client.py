@@ -40,7 +40,18 @@ class RemoteEpochDB:
         except Exception as e:
             raise RuntimeError(f"Failed to connect to EpochDB server at {self.url}: {e}")
 
-    def remember(self, text: str, metadata: Optional[dict] = None) -> str:
+    def remember(
+        self,
+        text: str,
+        triples: Optional[Any] = None,
+        metadata: Optional[dict] = None,
+    ) -> str:
+        if isinstance(triples, dict) and metadata is None:
+            metadata = triples
+            triples = None
+        if triples is not None:
+            metadata = metadata or {}
+            metadata["triples"] = triples
         res = self._post("/remember", {"text": text, "metadata": metadata})
         return res["atom_id"]
 
@@ -132,7 +143,18 @@ class AsyncRemoteEpochDB:
         except Exception as e:
             raise RuntimeError(f"Failed to connect to EpochDB server at {self.base_url}: {e}")
 
-    async def remember(self, text: str, metadata: Optional[dict] = None) -> str:
+    async def remember(
+        self,
+        text: str,
+        triples: Optional[Any] = None,
+        metadata: Optional[dict] = None,
+    ) -> str:
+        if isinstance(triples, dict) and metadata is None:
+            metadata = triples
+            triples = None
+        if triples is not None:
+            metadata = metadata or {}
+            metadata["triples"] = triples
         res = await self._post("/remember", {"text": text, "metadata": metadata})
         return res.get("id") or res.get("atom_id")
 

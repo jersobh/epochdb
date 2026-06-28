@@ -184,7 +184,7 @@ class KGManager:
                 logger.error(f"Failed to unclaim entity '{entity}': {e}")
                 return False
 
-    def get_lineage(self, entity: str) -> List[Tuple[str, str, float]]:
+    def get_lineage(self, entity: str) -> List[Tuple[str, str]]:
         """
         Returns chronological lineage of atom associations for an entity.
         """
