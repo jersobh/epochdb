@@ -107,8 +107,17 @@ class EpochDB(EngineEpochDB):
             **kwargs
         )
 
-    def remember(self, text: str, metadata: Optional[dict] = None) -> str:
+    def remember(
+        self,
+        text: str,
+        triples: Optional[Any] = None,
+        metadata: Optional[dict] = None,
+    ) -> str:
         """Primary write method to store memories."""
+        if isinstance(triples, dict) and metadata is None:
+            metadata = triples
+            triples = None
+
         metadata = metadata or {}
         with self._internal_lock:
             if self._model_name:
@@ -118,7 +127,8 @@ class EpochDB(EngineEpochDB):
             else:
                 embedding = np.zeros(self.dim, dtype=np.float32)
 
-            triples = metadata.get("triples") or []
+            if triples is None:
+                triples = metadata.get("triples") or []
             if not triples:
                 extracted = self.extract_entities(text)
                 triples = [(str(e), "mentions", str(e)) for e in extracted]
@@ -455,10 +465,18 @@ class AsyncEpochDB:
             await asyncio.to_thread(self._db.close)
             self._db = None
 
-    async def remember(self, text: str, metadata: Optional[dict] = None) -> str:
+    async def remember(
+        self,
+        text: str,
+        triples: Optional[Any] = None,
+        metadata: Optional[dict] = None,
+    ) -> str:
+        if isinstance(triples, dict) and metadata is None:
+            metadata = triples
+            triples = None
         import asyncio
         db = await self._get_db()
-        return await asyncio.to_thread(db.remember, text, metadata)
+        return await asyncio.to_thread(db.remember, text, triples, metadata)
 
     async def remember_batch(self, items: list) -> List[str]:
         import asyncio
@@ -554,6 +572,11 @@ class AsyncEpochDB:
         import asyncio
         db = await self._get_db()
         return await asyncio.to_thread(db.get_total_atoms)
+
+    async def get_entities(self, prefix: Optional[str] = None) -> List[str]:
+        import asyncio
+        db = await self._get_db()
+        return await asyncio.to_thread(db.get_entities, prefix)
 
     async def close(self):
         import asyncio
