@@ -563,15 +563,31 @@ class EpochDB:
                         logger.warning(f"Could not save local model cache to {cache_dir}: {e}")
         return self._embedder
 
-    def remember(self, text: str, triples: List[tuple] = None) -> str:
+    def remember(
+        self,
+        text: str,
+        triples: Optional[Any] = None,
+        metadata: Optional[dict] = None,
+    ) -> str:
         """
         Convenience method: embed `text` automatically and store it.
         Requires EpochDB to be initialized with a `model` name.
         """
+        if isinstance(triples, dict) and metadata is None:
+            metadata = triples
+            triples = None
+
         with self._internal_lock:
             embedder = self._get_embedder()
             emb = embedder.encode(text, normalize_embeddings=True)
-            return self.add_memory(text, np.array(emb, dtype=np.float32), triples or [])
+            if triples is None and metadata is not None:
+                triples = metadata.get("triples") or []
+            return self.add_memory(
+                text,
+                np.array(emb, dtype=np.float32),
+                triples or [],
+                metadata=metadata,
+            )
 
     def remember_batch(self, texts: List[str], triples_list: List[List[tuple]] = None) -> List[str]:
         """
@@ -790,9 +806,14 @@ class AsyncEpochDB:
         if self._db:
             await asyncio.to_thread(self._db.close)
 
-    async def remember(self, text: str, triples: List[tuple] = None) -> str:
+    async def remember(
+        self,
+        text: str,
+        triples: Optional[Any] = None,
+        metadata: Optional[dict] = None,
+    ) -> str:
         import asyncio
-        return await asyncio.to_thread(self._db.remember, text, triples)
+        return await asyncio.to_thread(self._db.remember, text, triples, metadata)
 
     async def recall_text(self, query: str, **kwargs) -> List[UnifiedMemoryAtom]:
         import asyncio
