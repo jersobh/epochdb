@@ -43,11 +43,17 @@ embeddings = ["sentence-transformers"]
 # Native LangGraph checkpointer.
 langgraph = ["langgraph"]
 
+# MCP Server
+mcp = ["mcp[cli]>=1.0.0"]
+
 # Install everything (recommended for most agent use-cases).
-all = ["sentence-transformers", "langgraph", "google-genai (>=2.8.0,<3.0.0)"]
+all = ["sentence-transformers", "langgraph", "google-genai (>=2.8.0,<3.0.0)", "mcp[cli]>=1.0.0"]
 
 # Development tools.
-dev = ["pytest", "pytest-cov", "sentence-transformers", "langgraph", "google-genai (>=2.8.0,<3.0.0)"]
+dev = ["pytest", "pytest-cov", "sentence-transformers", "langgraph", "google-genai (>=2.8.0,<3.0.0)", "mcp[cli]>=1.0.0"]
+
+[project.scripts]
+epochdb-mcp = "epochdb.mcp_server:main"
 
 [project.urls]
 "Homepage" = "https://github.com/jersobh/epochdb"

@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "epochdb": {
+      "command": "python",
+      "args": [
+        "-m",
+        "epochdb.mcp_server"
+      ],
+      "env": {
+        "EPOCHDB_STORAGE_DIR": "/absolute/path/to/your/memory_data",
+        "EPOCHDB_MODEL": "all-MiniLM-L6-v2",
+        "EPOCHDB_TENANT": "optional-tenant-id",
+        "EPOCHDB_NAMESPACE": "optional-namespace-id"
+      }
+    }
+  }
+}
