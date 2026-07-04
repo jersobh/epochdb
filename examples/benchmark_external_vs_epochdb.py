@@ -5,10 +5,10 @@ import shutil
 import numpy as np
 from epochdb import EpochDB
 
-class SimulatedExternalMemorySystem:
+class SimulatedMemMachine:
     """
-    Simulates a traditional external memory layer (separate SQL, Graph, and Vector DBs).
-    Simulates roundtrip latencies for complex operations:
+    Simulates MemMachine's dual-database (SQL + Neo4j Graph + Vector) memory layer.
+    Simulates typical roundtrip latencies for complex operations:
     - Base search roundtrip: ~150ms
     - Multi-hop traversal (requiring sequential queries): ~350ms
     - Filtering of results (manual client-side merging): ~200ms
@@ -44,7 +44,7 @@ class SimulatedExternalMemorySystem:
             
         results = []
         
-        # 1. Fact Correction Check: Simulated external system doesn't have native 
+        # 1. Fact Correction Check: Simulated MemMachine doesn't have native 
         # state-aware supersession, so it returns all matching raw turns (stale + new)
         if "live" in query_text or "work" in query_text:
             for turn in self.raw_memories:
@@ -53,7 +53,6 @@ class SimulatedExternalMemorySystem:
                     
         # 2. Multi-hop simulation: requires resolving intermediate nodes
         elif "backend language" in query_text or "stripe" in query_text:
-            # Simulated naive graph traversal: returns raw relational text
             for turn in self.raw_memories:
                 if any(w in turn.lower() for w in ["stripe", "ruby"]):
                     results.append(turn)
@@ -93,7 +92,7 @@ class SimulatedExternalMemorySystem:
 
 def run_evaluation_suite():
     print("=" * 80)
-    print("      SYSTEMATIC EVALUATION SUITE: EPOCHDB VS EXTERNAL DUAL-DB MEMORY")
+    print("      SYSTEMATIC EVALUATION SUITE: EPOCHDB VS MEMMACHINE")
     print("=" * 80)
     
     # Setup storage
@@ -102,7 +101,7 @@ def run_evaluation_suite():
         shutil.rmtree(storage_dir)
         
     db = EpochDB(storage_dir=storage_dir, dim=4, embedding_model=None)
-    ext_system = SimulatedExternalMemorySystem(context_window=1)
+    mem_machine = SimulatedMemMachine(context_window=1)
     
     # Seeding database with complex scenario
     conversation = [
@@ -127,7 +126,7 @@ def run_evaluation_suite():
             )
         else:
             db.remember(text, triples=triples)
-        ext_system.remember(text, triples=triples)
+        mem_machine.remember(text, triples=triples)
         
     # Evaluation test scenarios
     scenarios = [
@@ -164,9 +163,9 @@ def run_evaluation_suite():
     epoch_total_tokens = 0
     epoch_success_count = 0
     
-    ext_total_latency = 0
-    ext_total_tokens = 0
-    ext_success_count = 0
+    mm_total_latency = 0
+    mm_total_tokens = 0
+    mm_success_count = 0
     
     for sc in scenarios:
         print(f"\nEvaluating -> {sc['name']}")
@@ -176,10 +175,8 @@ def run_evaluation_suite():
         # --- EpochDB ---
         t0 = time.time()
         if sc["type"] == "multi_hop":
-            # Multi-hop retrieval
             epoch_res = db.multi_hop(sc["query"], hops=2)
         elif sc["type"] == "quantitative":
-            # Adaptive Router will parse range constraints
             epoch_res = db.adaptive_query(sc["query"])
         else:
             epoch_res = db.query(sc["query"], k=3)
@@ -194,62 +191,59 @@ def run_evaluation_suite():
         if epoch_success:
             epoch_success_count += 1
             
-        # --- External System ---
-        ext_res_dict = ext_system.query(sc["query"], query_type=sc["type"])
-        ext_texts = ext_res_dict["results"]
-        ext_success = sc["validation"](ext_texts)
-        ext_tokens = sum(len(t) for t in ext_texts) / 4.0
+        # --- MemMachine ---
+        mm_res_dict = mem_machine.query(sc["query"], query_type=sc["type"])
+        mm_texts = mm_res_dict["results"]
+        mm_success = sc["validation"](mm_texts)
+        mm_tokens = sum(len(t) for t in mm_texts) / 4.0
         
-        ext_total_latency += ext_res_dict["latency_ms"]
-        ext_total_tokens += ext_tokens
-        if ext_success:
-            ext_success_count += 1
+        mm_total_latency += mm_res_dict["latency_ms"]
+        mm_total_tokens += mm_tokens
+        if mm_success:
+            mm_success_count += 1
             
         print(f"  Results:")
         print(f"    * EpochDB:       [Success={epoch_success}] [Latency={epoch_lat:.2f}ms] [Tokens={epoch_tokens:.1f}]")
         print(f"                     Returned: {epoch_texts}")
-        print(f"    * External Sys:  [Success={ext_success}] [Latency={ext_res_dict['latency_ms']:.2f}ms] [Tokens={ext_tokens:.1f}]")
-        print(f"                     Returned: {ext_texts}")
+        print(f"    * MemMachine:    [Success={mm_success}] [Latency={mm_res_dict['latency_ms']:.2f}ms] [Tokens={mm_tokens:.1f}]")
+        print(f"                     Returned: {mm_texts}")
 
     # Summary Calculations
     total_scenarios = len(scenarios)
     epoch_accuracy = (epoch_success_count / total_scenarios) * 100.0
-    ext_accuracy = (ext_success_count / total_scenarios) * 100.0
+    mm_accuracy = (mm_success_count / total_scenarios) * 100.0
     
     epoch_avg_lat = epoch_total_latency / total_scenarios
-    ext_avg_lat = ext_total_latency / total_scenarios
+    mm_avg_lat = mm_total_latency / total_scenarios
     
-    # 5. Composite Score Calculation
-    # Formula: Score = (Accuracy * 0.6) + ((150 / Latency) * 0.2) + ((100 / Tokens) * 0.2)
-    # Scaled to represent a metric where higher is better, max ~100
     epoch_lat_factor = min(10.0, 150.0 / max(0.1, epoch_avg_lat))
-    ext_lat_factor = min(10.0, 150.0 / max(0.1, ext_avg_lat))
+    mm_lat_factor = min(10.0, 150.0 / max(0.1, mm_avg_lat))
     
     epoch_token_factor = min(10.0, 100.0 / max(1.0, epoch_total_tokens))
-    ext_token_factor = min(10.0, 100.0 / max(1.0, ext_total_tokens))
+    mm_token_factor = min(10.0, 100.0 / max(1.0, mm_total_tokens))
     
     epoch_score = (epoch_accuracy * 0.7) + (epoch_lat_factor * 1.5) + (epoch_token_factor * 1.5)
-    ext_score = (ext_accuracy * 0.7) + (ext_lat_factor * 1.5) + (ext_token_factor * 1.5)
+    mm_score = (mm_accuracy * 0.7) + (mm_lat_factor * 1.5) + (mm_token_factor * 1.5)
 
     print("\n" + "=" * 80)
     print("                           FINAL SCORECARD & COMPARISON")
     print("=" * 80)
-    print(f"Metric                  | EpochDB                   | External Dual-DB System")
+    print(f"Metric                  | EpochDB                   | MemMachine")
     print(f"------------------------+---------------------------+-------------------------")
-    print(f"Factual Accuracy        | {epoch_accuracy:.1f}% ({epoch_success_count}/{total_scenarios})      | {ext_accuracy:.1f}% ({ext_success_count}/{total_scenarios})")
-    print(f"Average Latency         | {epoch_avg_lat:.2f} ms               | {ext_avg_lat:.2f} ms")
-    print(f"Total Context Payload   | {epoch_total_tokens:.1f} tokens             | {ext_total_tokens:.1f} tokens")
+    print(f"Factual Accuracy        | {epoch_accuracy:.1f}% ({epoch_success_count}/{total_scenarios})      | {mm_accuracy:.1f}% ({mm_success_count}/{total_scenarios})")
+    print(f"Average Latency         | {epoch_avg_lat:.2f} ms               | {mm_avg_lat:.2f} ms")
+    print(f"Total Context Payload   | {epoch_total_tokens:.1f} tokens             | {mm_total_tokens:.1f} tokens")
     print(f"------------------------+---------------------------+-------------------------")
-    print(f"COMPOSITE SCORE (0-100) | {epoch_score:.2f}                     | {ext_score:.2f}")
+    print(f"COMPOSITE SCORE (0-100) | {epoch_score:.2f}                     | {mm_score:.2f}")
     print(f"------------------------+---------------------------+-------------------------")
     
-    if epoch_score > ext_score:
-        print(f"\nWINNER: EpochDB (by a margin of {epoch_score - ext_score:.2f} points)")
+    if epoch_score > mm_score:
+        print(f"\nWINNER: EpochDB (by a margin of {epoch_score - mm_score:.2f} points)")
         print("Reasoning: EpochDB ensures perfect factual consistency via state-aware supersession,")
         print("eliminates query overheads via unified relational indexes, and reduces agent prompt")
         print("bloat by returning only the required factual context.")
     else:
-        print("\nWINNER: External System")
+        print("\nWINNER: MemMachine")
         
     print("=" * 80)
 
