@@ -5,7 +5,7 @@ import datetime
 from typing import List, Optional, Dict, Any, Tuple, Union
 
 from epochdb.engine import EpochDB as EngineEpochDB
-from epochdb.core.atom import UnifiedMemoryAtom, PayloadType
+from epochdb.core.atom import UnifiedMemoryAtom, PayloadType, MemoryType
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,8 @@ class Memory:
         self.access_count = atom.access_count
         self.triples = atom.triples
         self.payload_type = atom.payload_type.value if atom.payload_type else "text"
+        self.memory_type = atom.memory_type.value if atom.memory_type else "general"
+        self.namespace = atom.namespace
         self._atom = atom
 
     def __repr__(self):
@@ -84,13 +86,17 @@ class EpochDB(EngineEpochDB):
         auto_flush: bool = True,
         dim: int = 384,
         tenant: Optional[str] = None,
+        namespace: Optional[str] = None,
         wal_sync_interval: float = 0.0,
         parquet_compression: str = "ZSTD",
         parquet_compression_level: int = 3,
         wal_use_uring: bool = True,
+        auto_extract: bool = False,
+        extraction_model: Optional[str] = None,
         **kwargs
     ):
         self.auto_flush = auto_flush
+        self.extraction_model = extraction_model
         if "model" in kwargs:
             val = kwargs.pop("model")
             if embedding_model is None:
@@ -100,10 +106,13 @@ class EpochDB(EngineEpochDB):
             dim=dim,
             model=embedding_model,
             tenant=tenant,
+            namespace=namespace,
             wal_sync_interval=wal_sync_interval,
             parquet_compression=parquet_compression,
             parquet_compression_level=parquet_compression_level,
             wal_use_uring=wal_use_uring,
+            auto_extract=auto_extract,
+            extraction_model=extraction_model,
             **kwargs
         )
 
@@ -112,6 +121,7 @@ class EpochDB(EngineEpochDB):
         text: str,
         triples: Optional[Any] = None,
         metadata: Optional[dict] = None,
+        memory_type: Optional[str] = None,
     ) -> str:
         """Primary write method to store memories."""
         if isinstance(triples, dict) and metadata is None:
@@ -128,8 +138,13 @@ class EpochDB(EngineEpochDB):
                 embedding = np.zeros(self.dim, dtype=np.float32)
 
             if triples is None:
-                triples = metadata.get("triples") or []
-            if not triples:
+                triples = metadata.get("triples")
+            
+            if not triples and self.auto_extract:
+                from epochdb.core.fact_extractor import FactExtractor
+                extractor = FactExtractor(self, self.extraction_model)
+                triples = extractor.extract(text)
+            elif not triples:
                 extracted = self.extract_entities(text)
                 triples = [(str(e), "mentions", str(e)) for e in extracted]
 
@@ -139,6 +154,15 @@ class EpochDB(EngineEpochDB):
                 triples=triples,
                 metadata=metadata,
             )
+            # Set memory_type on the atom if specified
+            if memory_type:
+                try:
+                    mt = MemoryType(memory_type)
+                    atom = self.hot_tier.atoms.get(atom_id)
+                    if atom:
+                        atom.memory_type = mt
+                except ValueError:
+                    pass
             return atom_id
 
     def remember_batch(self, items: list) -> List[str]:
@@ -257,7 +281,7 @@ class EpochDB(EngineEpochDB):
             super().fork(parent_epoch_id, new_epoch_id)
             return new_epoch_id
 
-    def query(self, text: str, k: int = 5, filters: Optional[dict] = None, min_score: float = 0.0) -> List[Memory]:
+    def query(self, text: str, k: int = 5, filters: Optional[dict] = None, min_score: float = 0.0, memory_type: Optional[str] = None, context_window: int = 0) -> List[Memory]:
         """Query memory using semantic search."""
         query_entities = [str(e) for e in self.extract_entities(text)]
         if self._model_name:
@@ -273,7 +297,15 @@ class EpochDB(EngineEpochDB):
                 expand_hops=0,
                 query_entities=query_entities,
                 filters=filters,
+                context_window=context_window,
             )
+            # Filter by memory_type if specified
+            if memory_type:
+                try:
+                    mt = MemoryType(memory_type)
+                    atoms = [a for a in atoms if a.memory_type == mt]
+                except ValueError:
+                    pass
             memories = []
             for atom in atoms:
                 score = 0.0
@@ -285,7 +317,13 @@ class EpochDB(EngineEpochDB):
                     memories.append(Memory(atom))
             return memories
 
-    def multi_hop(self, text: str, hops: int = 2, k: int = 5, filters: Optional[dict] = None) -> List[Memory]:
+    def analyze(self, text: str) -> List[Tuple[str, str, str]]:
+        """Extract triples from text without storing it."""
+        from epochdb.core.fact_extractor import FactExtractor
+        extractor = FactExtractor(self, self.extraction_model)
+        return extractor.extract(text)
+
+    def multi_hop(self, text: str, hops: int = 2, k: int = 5, filters: Optional[dict] = None, context_window: int = 0) -> List[Memory]:
         """Multi-hop relational query."""
         query_entities = [str(e) for e in self.extract_entities(text)]
         if self._model_name:
@@ -301,8 +339,15 @@ class EpochDB(EngineEpochDB):
                 expand_hops=hops,
                 query_entities=query_entities,
                 filters=filters,
+                context_window=context_window,
             )
             return [Memory(atom) for atom in atoms]
+
+    def adaptive_query(self, query: str, k: int = 5, context_window: int = 0) -> List[Memory]:
+        """Intelligently route and execute the query using the AdaptiveRouter."""
+        from epochdb.retrieval.router import AdaptiveRouter
+        router = AdaptiveRouter(self, model_id=self.extraction_model)
+        return router.route_and_query(query, k=k, context_window=context_window)
 
     def get_timeline(self, entity_id: Optional[str] = None, start: Optional[Any] = None, end: Optional[Any] = None) -> List[Memory]:
         """Get chronological history of memories."""
@@ -470,13 +515,19 @@ class AsyncEpochDB:
         text: str,
         triples: Optional[Any] = None,
         metadata: Optional[dict] = None,
+        memory_type: Optional[str] = None,
     ) -> str:
         if isinstance(triples, dict) and metadata is None:
             metadata = triples
             triples = None
         import asyncio
         db = await self._get_db()
-        return await asyncio.to_thread(db.remember, text, triples, metadata)
+        return await asyncio.to_thread(db.remember, text, triples, metadata, memory_type)
+
+    async def analyze(self, text: str) -> List[Tuple[str, str, str]]:
+        import asyncio
+        db = await self._get_db()
+        return await asyncio.to_thread(db.analyze, text)
 
     async def remember_batch(self, items: list) -> List[str]:
         import asyncio

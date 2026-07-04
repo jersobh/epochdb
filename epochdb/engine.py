@@ -8,7 +8,7 @@ from typing import List, Optional, Dict, Any, Set, Union
 
 import numpy as np
 
-from epochdb.core.atom import UnifiedMemoryAtom, PayloadType, ScalarPayload, SeriesPayload, ConstraintPayload, SeriesPoint
+from epochdb.core.atom import UnifiedMemoryAtom, PayloadType, ScalarPayload, SeriesPayload, ConstraintPayload, SeriesPoint, MemoryType
 from epochdb.storage.hot_tier import HotTier
 from epochdb.storage.cold_tier import ColdTier
 from epochdb.core.transaction import WriteAheadLog, FileLock, MultiIndexTransaction
@@ -47,19 +47,30 @@ class EpochDB:
         hot_tier_capacity: int = 10_000,
         model: Optional[str] = "all-MiniLM-L6-v2",
         tenant: Optional[str] = None,
+        namespace: Optional[str] = None,
         wal_sync_interval: float = 0.0,
         model_cache_path: Optional[str] = None,
         parquet_compression: str = "ZSTD",
         parquet_compression_level: int = 3,
         wal_use_uring: bool = True,
+        auto_extract: bool = False,
+        extraction_model: Optional[str] = None,
     ):
         self.tenant = tenant
+        self.namespace = namespace
         self.wal_sync_interval = wal_sync_interval
         self.wal_use_uring = wal_use_uring
+        self.auto_extract = auto_extract
+        self.extraction_model = extraction_model
+        self._fact_extractor = None
 
         # Physical partition for tenant isolation
         if self.tenant:
             storage_dir = os.path.join(storage_dir, "tenants", self.tenant)
+
+        # Namespace subdirectory within the tenant
+        if self.namespace:
+            storage_dir = os.path.join(storage_dir, "ns", self.namespace)
 
         self.storage_dir = os.path.abspath(storage_dir)
         self.dim = dim
@@ -244,6 +255,7 @@ class EpochDB:
                 "triples": triples,
                 "epoch_id": self.current_epoch_id,
                 "created_at": ts,
+                "namespace": self.namespace,
             }
             if atom_id is not None:
                 atom_kwargs["id"] = atom_id
@@ -351,6 +363,7 @@ class EpochDB:
         expand_hops: int = 1,
         query_entities: List[str] = None,
         fork_id: Optional[str] = None,
+        memory_type: Optional[str] = None,
     ) -> List[UnifiedMemoryAtom]:
         """Query memory using a dense embedding vector."""
         with self._internal_lock:
@@ -361,6 +374,13 @@ class EpochDB:
                 query_entities=query_entities,
                 fork_id=fork_id,
             )
+            # Filter by memory_type if specified
+            if memory_type:
+                try:
+                    mt = MemoryType(memory_type)
+                    results = [a for a in results if a.memory_type == mt]
+                except ValueError:
+                    pass
             self._check_epoch_expiry()
             return results
 
@@ -568,6 +588,7 @@ class EpochDB:
         text: str,
         triples: Optional[Any] = None,
         metadata: Optional[dict] = None,
+        memory_type: Optional[str] = None,
     ) -> str:
         """
         Convenience method: embed `text` automatically and store it.
@@ -581,13 +602,32 @@ class EpochDB:
             embedder = self._get_embedder()
             emb = embedder.encode(text, normalize_embeddings=True)
             if triples is None and metadata is not None:
-                triples = metadata.get("triples") or []
-            return self.add_memory(
+                triples = metadata.get("triples")
+            
+            if not triples and self.auto_extract:
+                from epochdb.core.fact_extractor import FactExtractor
+                if self._fact_extractor is None:
+                    self._fact_extractor = FactExtractor(self, self.extraction_model)
+                triples = self._fact_extractor.extract(text)
+            elif not triples:
+                triples = []
+
+            atom_id = self.add_memory(
                 text,
                 np.array(emb, dtype=np.float32),
-                triples or [],
+                triples,
                 metadata=metadata,
             )
+            # Set memory_type on the atom if specified
+            if memory_type:
+                try:
+                    mt = MemoryType(memory_type)
+                    atom = self.hot_tier.atoms.get(atom_id)
+                    if atom:
+                        atom.memory_type = mt
+                except ValueError:
+                    pass
+            return atom_id
 
     def remember_batch(self, texts: List[str], triples_list: List[List[tuple]] = None) -> List[str]:
         """
@@ -633,6 +673,7 @@ class EpochDB:
         top_k: int = 5,
         expand_hops: int = 1,
         query_entities: List[str] = None,
+        memory_type: Optional[str] = None,
     ) -> List[UnifiedMemoryAtom]:
         """
         Convenience method: embed `query` automatically and recall memories.
@@ -653,6 +694,7 @@ class EpochDB:
                 top_k=top_k,
                 expand_hops=expand_hops,
                 query_entities=query_entities,
+                memory_type=memory_type,
             )
 
     # -------------------------------------------------------------------------
