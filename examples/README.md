@@ -31,14 +31,14 @@ EpochDB is fully functional **offline** and does not require external API keys. 
 
 ## Evaluation & Benchmarks
 
-### 1. External System vs EpochDB Benchmark
-- **[benchmark_external_vs_epochdb.py](benchmark_external_vs_epochdb.py)**: Compares EpochDB and a simulated external database-backed memory system across latency, token consumption, and retrieval accuracy:
+### 1. External Dual-DB System vs EpochDB Benchmark
+- **[benchmark_memmachine_vs_epochdb.py](benchmark_memmachine_vs_epochdb.py)**: Compares EpochDB and a simulated external dual-database memory system across latency, token consumption, and retrieval accuracy:
   - **Latency**: Measures EpochDB's local sub-millisecond retrieval vs the external system's multi-database roundtrips.
   - **Token Scaling**: Measures how Contextualized Retrieval (turns expansion) affects token consumption over a conversation timeline.
   
   *Run the benchmark:*
   ```bash
-  python3 examples/benchmark_external_vs_epochdb.py
+  python3 examples/benchmark_memmachine_vs_epochdb.py
   ```
 
 ### 2. General Verification & Performance

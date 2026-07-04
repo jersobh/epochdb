@@ -1,4 +1,4 @@
-# examples/benchmark_external_vs_epochdb.py
+# examples/benchmark_memmachine_vs_epochdb.py
 import time
 import os
 import shutil
