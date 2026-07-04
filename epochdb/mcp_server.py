@@ -40,7 +40,7 @@ def epochdb_remember(text: str, metadata: Optional[dict] = None, memory_type: Op
     return db.remember(text, metadata=metadata, memory_type=memory_type)
 
 @mcp.tool()
-def epochdb_query(query: str, k: int = 5, min_score: float = 0.0, memory_type: Optional[str] = None) -> list:
+def epochdb_query(query: str, k: int = 5, min_score: float = 0.0, memory_type: Optional[str] = None, context_window: int = 0) -> list:
     """
     Search and retrieve semantically relevant memories from EpochDB based on a search query.
     
@@ -49,9 +49,10 @@ def epochdb_query(query: str, k: int = 5, min_score: float = 0.0, memory_type: O
         k: The number of relevant memories to retrieve.
         min_score: Minimum similarity score threshold (0.0 to 1.0).
         memory_type: Optional filter by memory type ('general', 'episodic', 'profile', 'working').
+        context_window: Optional number of context turns to retrieve around the matched memory.
     """
     db = get_db()
-    memories = db.query(query, k=k, min_score=min_score, memory_type=memory_type)
+    memories = db.query(query, k=k, min_score=min_score, memory_type=memory_type, context_window=context_window)
     return [
         {
             "id": m.id,
@@ -68,7 +69,7 @@ def epochdb_query(query: str, k: int = 5, min_score: float = 0.0, memory_type: O
     ]
 
 @mcp.tool()
-def epochdb_multi_hop(query: str, hops: int = 2, k: int = 5) -> list:
+def epochdb_multi_hop(query: str, hops: int = 2, k: int = 5, context_window: int = 0) -> list:
     """
     Retrieve memories related to a query using multi-hop relational search across the global entity graph.
     Use this for complex questions that require connecting multiple facts.
@@ -77,9 +78,38 @@ def epochdb_multi_hop(query: str, hops: int = 2, k: int = 5) -> list:
         query: The multi-hop relational search query.
         hops: Number of relationship hops to traverse in the entity graph.
         k: Number of relevant memories to return.
+        context_window: Optional number of context turns to retrieve around the matched memory.
     """
     db = get_db()
-    memories = db.multi_hop(query, hops=hops, k=k)
+    memories = db.multi_hop(query, hops=hops, k=k, context_window=context_window)
+    return [
+        {
+            "id": m.id,
+            "text": m.text,
+            "metadata": m.metadata,
+            "created_at": m.created_at,
+            "access_count": m.access_count,
+            "triples": m.triples,
+            "payload_type": m.payload_type,
+            "memory_type": m.memory_type,
+            "namespace": m.namespace,
+        }
+        for m in memories
+    ]
+
+@mcp.tool()
+def epochdb_adaptive_query(query: str, k: int = 5, context_window: int = 0) -> list:
+    """
+    Intelligently routes a query to the optimal engine(s) (semantic, relational, temporal, or quantitative) 
+    using LLM-orchestrated routing (or local rule fallbacks if offline) and retrieves relevant memories.
+    
+    Args:
+        query: The natural language search query.
+        k: The number of relevant memories to retrieve.
+        context_window: Number of chronological context turns to retrieve before and after the matched memory.
+    """
+    db = get_db()
+    memories = db.adaptive_query(query, k=k, context_window=context_window)
     return [
         {
             "id": m.id,
