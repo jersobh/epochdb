@@ -558,6 +558,9 @@ class EpochDB:
             if normalized_model_name.startswith("google:"):
                 model_id = normalized_model_name.split("google:", 1)[-1]
                 self._embedder = GoogleEmbedder(model_id, dim=self.dim)
+            elif normalized_model_name.startswith("openai:"):
+                model_id = normalized_model_name.split("openai:", 1)[-1]
+                self._embedder = OpenAIEmbedder(model_id, dim=self.dim)
             else:
                 try:
                     from sentence_transformers import SentenceTransformer
@@ -957,6 +960,83 @@ class GoogleEmbedder:
                     raise e
         
         embs = [np.array(e.values, dtype=np.float32) for e in result.embeddings]
+        if normalize_embeddings:
+            for i in range(len(embs)):
+                norm = np.linalg.norm(embs[i])
+                if norm > 1e-10:
+                    embs[i] /= norm
+                    
+        if is_single:
+            return embs[0]
+        return np.array(embs, dtype=np.float32)
+
+    def encode_batch(self, texts: List[str]) -> np.ndarray:
+        return self.encode(texts, normalize_embeddings=True)
+
+class OpenAIEmbedder:
+    """Wrapper for OpenAI-compatible Embedding services."""
+    def __init__(self, model_id: str, dim: int = 1536):
+        self.model_id = model_id
+        self.dim = dim
+        self._api_key = None
+        self._base_url = None
+
+    def _init_config(self):
+        if self._api_key is None:
+            import os
+            self._api_key = os.getenv("OPENAI_API_KEY")
+            if not self._api_key:
+                raise ValueError("OPENAI_API_KEY not found in environment.")
+            self._base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1/embeddings")
+            if self._base_url.endswith("/v1") or self._base_url.endswith("/v1/"):
+                self._base_url = self._base_url.rstrip("/") + "/embeddings"
+
+    def encode(self, text: Union[str, List[str]], normalize_embeddings: bool = True) -> np.ndarray:
+        self._init_config()
+        import requests
+        
+        is_single = isinstance(text, str)
+        contents = [text] if is_single else list(text)
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._api_key}"
+        }
+        payload = {
+            "model": self.model_id,
+            "input": contents
+        }
+        
+        if "text-embedding-3" in self.model_id:
+            payload["dimensions"] = self.dim
+            
+        logger.debug(f"[OpenAIEmbedder] Sending request to {self._base_url} with model {self.model_id}...")
+        
+        import time
+        import random
+        max_retries = 6
+        base_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(self._base_url, json=payload, headers=headers, timeout=30.0)
+                response.raise_for_status()
+                break
+            except Exception as e:
+                err_str = str(e)
+                if attempt < max_retries - 1 and ("429" in err_str or "RATE_LIMIT" in err_str or "TOO MANY REQUESTS" in err_str.upper()):
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(f"[OpenAIEmbedder] Rate limit hit (429). Retrying in {delay:.2f}s... (Attempt {attempt+1}/{max_retries})")
+                    time.sleep(delay)
+                else:
+                    logger.error(f"[OpenAIEmbedder] Request failed: {e}")
+                    raise e
+                    
+        res_data = response.json()
+        embeddings_list = [np.array(item["embedding"], dtype=np.float32) for item in res_data["data"]]
+        
+        embs = [np.array(e, dtype=np.float32) for e in embeddings_list]
+        
         if normalize_embeddings:
             for i in range(len(embs)):
                 norm = np.linalg.norm(embs[i])
