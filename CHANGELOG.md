@@ -6,6 +6,13 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.4.0] - 2026-07-04
+### Added
+- **Contextualized Retrieval (Temporal Context Expansion)**: Implemented temporal context expansion in search methods (`query()`, `multi_hop()`). When `context_window` is set greater than 0, retrieval returns the temporal dialogue context (adjacent turns) in the same namespace chronologically.
+- **Adaptive Query Router**: Created `AdaptiveRouter` which dynamically routes incoming queries to optimal query engines (semantic, relational, temporal, or quantitative) using Gemini, OpenAI, or Anthropic (if configured) with local rule-based and keyword heuristics fallbacks.
+- **Multi-LLM Provider Support**: Support for `google-genai`, `openai`, and `anthropic` clients dynamically and optionally without making them strict dependencies.
+- Exposed `epochdb_adaptive_query` MCP tool and `context_window` parameters on FastMCP.
+
 ## [1.3.1] - 2026-06-28
 ### Fixed
 - **get_entity_history Unpacking Error**: Fixed a critical ValueError where the 3-value lineage tuple `(atom_id, epoch_id, timestamp)` returned by the global KG manager was incorrectly unpacked into only 2 values, which caused timeline queries to crash.

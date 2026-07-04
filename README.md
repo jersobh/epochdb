@@ -29,6 +29,8 @@ Flat vector databases retrieve text based on semantic similarity but struggle to
 
 - **Topic Lock & Entity Seeding**: Ensures retrieval stays within the target topic by seeding candidates directly from the Knowledge Graph.
 - **State-Aware Supersession**: Automatically identifies and filters out stale facts when they are updated.
+- **Adaptive Query Routing & Decomposition**: Dynamically routes incoming queries to optimal search engines (semantic, relational, temporal, or quantitative) or splits composite queries using LLMs (Gemini, OpenAI, Anthropic) or local offline rules.
+- **Contextualized Retrieval (Temporal neighbor expansion)**: Retrieves chronological context turns immediately surrounding matched memories.
 - **Tiered HNSW Hierarchy**: Sub-millisecond recall across working memory (L1 RAM) and historical archives (L2 Disk).
 - **Memory Forking & Lineage**: Supports logical branches (`db.fork`) for multi-agent collaboration and hypothetical reasoning without copying data.
 - **Rich Domain Objects**: Returns structured `Memory`, `Entity`, and `Graph` abstractions rather than raw database tuples.

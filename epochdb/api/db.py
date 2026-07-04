@@ -281,7 +281,7 @@ class EpochDB(EngineEpochDB):
             super().fork(parent_epoch_id, new_epoch_id)
             return new_epoch_id
 
-    def query(self, text: str, k: int = 5, filters: Optional[dict] = None, min_score: float = 0.0, memory_type: Optional[str] = None) -> List[Memory]:
+    def query(self, text: str, k: int = 5, filters: Optional[dict] = None, min_score: float = 0.0, memory_type: Optional[str] = None, context_window: int = 0) -> List[Memory]:
         """Query memory using semantic search."""
         query_entities = [str(e) for e in self.extract_entities(text)]
         if self._model_name:
@@ -297,6 +297,7 @@ class EpochDB(EngineEpochDB):
                 expand_hops=0,
                 query_entities=query_entities,
                 filters=filters,
+                context_window=context_window,
             )
             # Filter by memory_type if specified
             if memory_type:
@@ -322,7 +323,7 @@ class EpochDB(EngineEpochDB):
         extractor = FactExtractor(self, self.extraction_model)
         return extractor.extract(text)
 
-    def multi_hop(self, text: str, hops: int = 2, k: int = 5, filters: Optional[dict] = None) -> List[Memory]:
+    def multi_hop(self, text: str, hops: int = 2, k: int = 5, filters: Optional[dict] = None, context_window: int = 0) -> List[Memory]:
         """Multi-hop relational query."""
         query_entities = [str(e) for e in self.extract_entities(text)]
         if self._model_name:
@@ -338,8 +339,15 @@ class EpochDB(EngineEpochDB):
                 expand_hops=hops,
                 query_entities=query_entities,
                 filters=filters,
+                context_window=context_window,
             )
             return [Memory(atom) for atom in atoms]
+
+    def adaptive_query(self, query: str, k: int = 5, context_window: int = 0) -> List[Memory]:
+        """Intelligently route and execute the query using the AdaptiveRouter."""
+        from epochdb.retrieval.router import AdaptiveRouter
+        router = AdaptiveRouter(self, model_id=self.extraction_model)
+        return router.route_and_query(query, k=k, context_window=context_window)
 
     def get_timeline(self, entity_id: Optional[str] = None, start: Optional[Any] = None, end: Optional[Any] = None) -> List[Memory]:
         """Get chronological history of memories."""

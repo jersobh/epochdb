@@ -9,12 +9,13 @@ def clean_storage():
     if os.path.exists(storage_dir):
         shutil.rmtree(storage_dir)
     os.environ["EPOCHDB_STORAGE_DIR"] = storage_dir
+    os.environ["EPOCHDB_MODEL"] = ""
     yield
     if os.path.exists(storage_dir):
         shutil.rmtree(storage_dir)
 
 def test_mcp_tools_registration():
-    # Verify that all 7 tools are registered on the FastMCP instance
+    # Verify that all tools are registered on the FastMCP instance
     tool_names = list(mcp._tool_manager._tools.keys())
     assert "epochdb_remember" in tool_names
     assert "epochdb_query" in tool_names
@@ -24,6 +25,7 @@ def test_mcp_tools_registration():
     assert "epochdb_update" in tool_names
     assert "epochdb_delete" in tool_names
     assert "epochdb_analyze" in tool_names
+    assert "epochdb_adaptive_query" in tool_names
 
 def test_mcp_tools_execution():
     # Direct execution check on the underlying tool functions
