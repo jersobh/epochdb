@@ -326,6 +326,31 @@ async def run_agent():
 ```
 
 ---
+## Configuring Embedding Providers
+
+EpochDB supports multiple local and cloud embedding providers:
+
+1. **Local Offline Models (Default)**: Pass any SentenceTransformer model name (e.g. `"all-MiniLM-L6-v2"`).
+   ```python
+   db = EpochDB(storage_dir="./memory", model="all-MiniLM-L6-v2")
+   ```
+2. **OpenAI & Compatible APIs**: Use the `openai:` prefix.
+   - Requires `OPENAI_API_KEY` set in your environment.
+   - You can optionally set `OPENAI_BASE_URL` to route requests to local proxies (e.g., vLLM, LM Studio, Ollama) or compatible cloud endpoints (e.g. Voyage AI, Cohere).
+   - Ensure the `dim` parameter matches your target dimensions (e.g., `1536` for `text-embedding-3-small` or any custom dimension supported by the model).
+   ```python
+   db = EpochDB(storage_dir="./memory", model="openai:text-embedding-3-small", dim=1536)
+   ```
+3. **Google / Gemini API**: Use the `google:` prefix.
+   - Requires `GEMINI_API_KEY` set in your environment.
+   ```python
+   db = EpochDB(storage_dir="./memory", model="google:text-embedding-004", dim=768)
+   ```
+4. **Ollama Local Service**: Use the `ollama:` prefix.
+   - Requires a running local Ollama service.
+   ```python
+   db = EpochDB(storage_dir="./memory", model="ollama:all-minilm", dim=384)
+   ```
 
 ## Repository Structure
 
