@@ -11,6 +11,14 @@ class PayloadType(Enum):
     SERIES = "series"
     CONSTRAINT = "constraint"
 
+
+class MemoryType(Enum):
+    """Semantic memory categories for retrieval prioritization."""
+    GENERAL = "general"
+    EPISODIC = "episodic"      # Conversational context that persists across sessions
+    PROFILE = "profile"        # Long-term user facts and preferences
+    WORKING = "working"        # Short-term context for the current session
+
 @dataclass
 class Interval:
     low: float
@@ -73,6 +81,8 @@ class UnifiedMemoryAtom:
     access_count: int = 0
     epoch_id: str = "active"
     metadata: Dict[str, Any] = field(default_factory=dict)
+    namespace: Optional[str] = None
+    memory_type: MemoryType = MemoryType.GENERAL
 
     def __post_init__(self):
         if self.payload_type == PayloadType.TEXT:
@@ -134,6 +144,8 @@ class UnifiedMemoryAtom:
             "access_count": self.access_count,
             "epoch_id": self.epoch_id,
             "metadata": self.metadata,
+            "namespace": self.namespace,
+            "memory_type": self.memory_type.value,
         }
 
     @classmethod
@@ -171,6 +183,13 @@ class UnifiedMemoryAtom:
         elif ptype == PayloadType.CONSTRAINT:
             payload = ConstraintPayload(**payload)
 
+        # Parse memory_type with backward compatibility
+        mt_str = data.get("memory_type", "general")
+        try:
+            mt = MemoryType(mt_str)
+        except ValueError:
+            mt = MemoryType.GENERAL
+
         return cls(
             id=data["id"],
             payload=payload,
@@ -181,4 +200,6 @@ class UnifiedMemoryAtom:
             access_count=data["access_count"],
             epoch_id=data["epoch_id"],
             metadata=data.get("metadata", {}),
+            namespace=data.get("namespace"),
+            memory_type=mt,
         )

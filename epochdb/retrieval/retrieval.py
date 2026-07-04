@@ -148,6 +148,7 @@ class RetrievalManager:
         payload_type: Optional[PayloadType] = None,
         fork_id: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
+        context_window: int = 0,
     ) -> List[UnifiedMemoryAtom]:
         query_entities = set(query_entities) if query_entities else set()
         # Freeze the original query intent before graph expansion contaminates it.
@@ -556,6 +557,54 @@ class RetrievalManager:
                     self._access_deltas.get(atom.id, 0) + 1
                 )
             final_atoms.append(atom)
+
+        # --- 6. Context Window (Temporal Context Expansion) ---
+        if context_window > 0 and final_atoms:
+            chrono_cache = {}
+            for atom in final_atoms:
+                ns = atom.namespace
+                if ns not in chrono_cache:
+                    all_atoms = list(self.hot_tier.atoms.values())
+                    for epoch_id in self.cold_tier.get_all_epochs():
+                        try:
+                            all_atoms.extend(self.cold_tier.load_epoch(epoch_id))
+                        except Exception as e:
+                            logger.error(f"Failed to load epoch {epoch_id} for context expansion: {e}")
+                    
+                    filtered = []
+                    seen_ids = set()
+                    for a in all_atoms:
+                        if a.id in seen_ids:
+                            continue
+                        if a.metadata.get("_deleted"):
+                            continue
+                        if a.namespace == ns:
+                            filtered.append(a)
+                            seen_ids.add(a.id)
+                    filtered.sort(key=lambda x: x.created_at)
+                    chrono_cache[ns] = filtered
+                
+                ns_atoms = chrono_cache[ns]
+                try:
+                    idx = next(i for i, a in enumerate(ns_atoms) if a.id == atom.id)
+                    start_idx = max(0, idx - context_window)
+                    end_idx = min(len(ns_atoms), idx + context_window + 1)
+                    neighbors = ns_atoms[start_idx:end_idx]
+                    
+                    neighbor_dicts = []
+                    for neighbor in neighbors:
+                        payload_str = neighbor.payload if isinstance(neighbor.payload, str) else str(neighbor.payload)
+                        meta = {k: v for k, v in neighbor.metadata.items() if k != "context_neighbors"}
+                        neighbor_dicts.append({
+                            "id": neighbor.id,
+                            "payload": payload_str,
+                            "created_at": neighbor.created_at,
+                            "memory_type": neighbor.memory_type.value if neighbor.memory_type else "general",
+                            "metadata": meta
+                        })
+                    atom.metadata["context_neighbors"] = neighbor_dicts
+                except StopIteration:
+                    pass
 
         return final_atoms
 

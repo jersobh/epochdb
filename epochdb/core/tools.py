@@ -23,12 +23,20 @@ class RememberInput(BaseModel):
         default=None,
         description="Optional metadata associated with the memory, e.g. custom tags or entity triples."
     )
+    memory_type: Optional[str] = Field(
+        default=None,
+        description="Optional memory type: 'general', 'episodic' (conversation context), 'profile' (user facts), or 'working' (short-term)."
+    )
 
 
 class QueryInput(BaseModel):
     query: str = Field(description="The semantic search query.")
     k: int = Field(default=5, description="Number of relevant memories to retrieve.")
     min_score: float = Field(default=0.0, description="Minimum similarity score threshold (0.0 to 1.0).")
+    memory_type: Optional[str] = Field(
+        default=None,
+        description="Optional filter by memory type: 'general', 'episodic', 'profile', or 'working'."
+    )
 
 
 class MultiHopInput(BaseModel):
@@ -59,7 +67,8 @@ class UpdateInput(BaseModel):
         description="Optional metadata dict to merge with the existing metadata."
     )
 
-
+class AnalyzeInput(BaseModel):
+    text: str = Field(description="The text content to analyze for relationship triples.")
 class DeleteInput(BaseModel):
     memory_id: str = Field(description="The unique ID of the memory to delete.")
     hard: bool = Field(default=False, description="If True, permanently delete the memory. If False, soft-deletes.")
@@ -76,6 +85,8 @@ def _serialize_memory(m: Any) -> Dict[str, Any]:
         "access_count": getattr(m, "access_count", 0),
         "triples": getattr(m, "triples", []),
         "payload_type": getattr(m, "payload_type", "text"),
+        "memory_type": getattr(m, "memory_type", "general"),
+        "namespace": getattr(m, "namespace", None),
     }
 
 
@@ -113,15 +124,15 @@ def get_epochdb_tools(db: Any) -> List[StructuredTool]:
     )
 
     # 1. epochdb_remember
-    def remember(text: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+    def remember(text: str, metadata: Optional[Dict[str, Any]] = None, memory_type: Optional[str] = None) -> str:
         if is_async:
-            return db._get_db_sync().remember(text, metadata)
-        return db.remember(text, metadata)
+            return db._get_db_sync().remember(text, metadata, memory_type=memory_type)
+        return db.remember(text, metadata, memory_type=memory_type)
 
-    async def aremember(text: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+    async def aremember(text: str, metadata: Optional[Dict[str, Any]] = None, memory_type: Optional[str] = None) -> str:
         if is_async:
-            return await db.remember(text, metadata)
-        return await asyncio.to_thread(db.remember, text, metadata)
+            return await db.remember(text, metadata, memory_type=memory_type)
+        return await asyncio.to_thread(db.remember, text, metadata, memory_type=memory_type)
 
     remember_tool = StructuredTool.from_function(
         func=remember,
@@ -132,18 +143,18 @@ def get_epochdb_tools(db: Any) -> List[StructuredTool]:
     )
 
     # 2. epochdb_query
-    def query(query: str, k: int = 5, min_score: float = 0.0) -> List[Dict[str, Any]]:
+    def query(query: str, k: int = 5, min_score: float = 0.0, memory_type: Optional[str] = None) -> List[Dict[str, Any]]:
         if is_async:
-            memories = db._get_db_sync().query(query, k=k, min_score=min_score)
+            memories = db._get_db_sync().query(query, k=k, min_score=min_score, memory_type=memory_type)
         else:
-            memories = db.query(query, k=k, min_score=min_score)
+            memories = db.query(query, k=k, min_score=min_score, memory_type=memory_type)
         return [_serialize_memory(m) for m in memories]
 
-    async def aquery(query: str, k: int = 5, min_score: float = 0.0) -> List[Dict[str, Any]]:
+    async def aquery(query: str, k: int = 5, min_score: float = 0.0, memory_type: Optional[str] = None) -> List[Dict[str, Any]]:
         if is_async:
-            memories = await db.query(query, k=k, min_score=min_score)
+            memories = await db.query(query, k=k, min_score=min_score, memory_type=memory_type)
         else:
-            memories = await asyncio.to_thread(db.query, query, k=k, min_score=min_score)
+            memories = await asyncio.to_thread(db.query, query, k=k, min_score=min_score, memory_type=memory_type)
         return [_serialize_memory(m) for m in memories]
 
     query_tool = StructuredTool.from_function(
@@ -294,6 +305,25 @@ def get_epochdb_tools(db: Any) -> List[StructuredTool]:
         args_schema=DeleteInput
     )
 
+    # 8. epochdb_analyze
+    def analyze(text: str) -> List[Tuple[str, str, str]]:
+        if is_async:
+            return db._get_db_sync().analyze(text)
+        return db.analyze(text)
+
+    async def aanalyze(text: str) -> List[Tuple[str, str, str]]:
+        if is_async:
+            return await db.analyze(text)
+        return await asyncio.to_thread(db.analyze, text)
+
+    analyze_tool = StructuredTool.from_function(
+        func=analyze,
+        coroutine=aanalyze,
+        name="epochdb_analyze",
+        description="Extract entity relationship triples (subject, predicate, object) from a given text.",
+        args_schema=AnalyzeInput
+    )
+
     return [
         remember_tool,
         query_tool,
@@ -301,5 +331,6 @@ def get_epochdb_tools(db: Any) -> List[StructuredTool]:
         timeline_tool,
         entity_graph_tool,
         update_tool,
-        delete_tool
+        delete_tool,
+        analyze_tool
     ]
