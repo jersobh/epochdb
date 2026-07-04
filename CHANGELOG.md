@@ -6,6 +6,12 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.5.0] - 2026-07-04
+### Added
+- **OpenAI Cloud Embedding Integration**: Implemented `OpenAIEmbedder` to support OpenAI and compatible API gateways (like Voyage, Cohere, local vLLM, etc.) using direct HTTP calls, avoiding hard third-party package dependencies.
+- **Model Dimension Customization**: Supports custom embedding vector output dimensions for modern models that allow it (e.g. `text-embedding-3-*`).
+- **Dynamic Config Parser**: Updated `_get_embedder` to parse `openai:` prefix config to initialize `OpenAIEmbedder` on-demand.
+
 ## [1.4.0] - 2026-07-04
 ### Added
 - **Contextualized Retrieval (Temporal Context Expansion)**: Implemented temporal context expansion in search methods (`query()`, `multi_hop()`). When `context_window` is set greater than 0, retrieval returns the temporal dialogue context (adjacent turns) in the same namespace chronologically.
