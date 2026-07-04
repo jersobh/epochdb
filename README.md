@@ -20,6 +20,9 @@
 
 **EpochDB** is a high-performance, state-aware memory engine designed for lossless, tiered storage, atomic state management, and multi-hop relational reasoning. It is built specifically for AI agents that require perfect historical recall, long-term state persistence, and deterministic fact corrections.
 
+> [!NOTE]
+> **Looking for a distributed, sharded deployment?** Check out the [EpochDB Distributed Server](https://github.com/jersobh/epochdb-server) repository for multi-node clustering, consistent-hashing-based horizontal sharding, and high-concurrency coordinator routing.
+
 ---
 
 ## Why EpochDB?
@@ -224,6 +227,9 @@ print(graph.edges)  # List of edge dictionaries mapping sources and targets
 ## Client-Server Architecture
 
 EpochDB supports remote deployments via a client-server architecture, allowing multiple agents or server processes to share a single, central database over HTTP.
+
+> [!TIP]
+> While the built-in server is ideal for single-node deployments, you can use the [EpochDB Distributed Server](https://github.com/jersobh/epochdb-server) for production environments that require horizontal sharding, multi-node clustering, gateway caching, and consistent hashing.
 
 ### 1. Starting the Server (`ThreadingEpochDBServer`)
 
