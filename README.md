@@ -250,7 +250,7 @@ finally:
 
 ### 2. Communicating via the Client (`RemoteEpochDB`)
 
-Use the remote client to execute queries, store memories, and retrieve timelines over HTTP REST:
+Use the remote client to execute queries, store memories, and retrieve timelines over HTTP REST (optionally specifying consistency levels like `"one"`, `"quorum"`, or `"all"` for sharded/replicated environments):
 
 ```python
 from epochdb import RemoteEpochDB
@@ -258,8 +258,8 @@ from epochdb import RemoteEpochDB
 # Initialize the client
 client = RemoteEpochDB(host="127.0.0.1", port=8080)
 
-# Store a memory
-client.remember("Pollyanna is married to Jefferson.")
+# Store a memory with explicit quorum consistency
+client.remember("Pollyanna is married to Jefferson.", consistency="quorum")
 
 # Query the remote database
 results = client.query("Who is Pollyanna married to?", k=1)

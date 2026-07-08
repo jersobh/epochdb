@@ -15,13 +15,16 @@ class RemoteEpochDB:
     def __init__(self, host: str = "127.0.0.1", port: int = 8080):
         self.url = f"http://{host}:{port}"
 
-    def _post(self, path: str, data: dict) -> dict:
+    def _post(self, path: str, data: dict, headers: Optional[dict] = None) -> dict:
         url = self.url + path
         req_data = json.dumps(data).encode('utf-8')
+        req_headers = {'Content-Type': 'application/json'}
+        if headers:
+            req_headers.update(headers)
         req = urllib.request.Request(
             url,
             data=req_data,
-            headers={'Content-Type': 'application/json'},
+            headers=req_headers,
             method='POST'
         )
         try:
@@ -45,6 +48,7 @@ class RemoteEpochDB:
         text: str,
         triples: Optional[Any] = None,
         metadata: Optional[dict] = None,
+        consistency: Optional[str] = None,
     ) -> str:
         if isinstance(triples, dict) and metadata is None:
             metadata = triples
@@ -52,25 +56,37 @@ class RemoteEpochDB:
         if triples is not None:
             metadata = metadata or {}
             metadata["triples"] = triples
-        res = self._post("/remember", {"text": text, "metadata": metadata})
+        headers = {}
+        if consistency:
+            headers["X-Consistency-Level"] = consistency
+        res = self._post("/remember", {"text": text, "metadata": metadata}, headers=headers)
         return res["atom_id"]
 
     def remember_batch(self, items: list) -> List[str]:
         res = self._post("/remember_batch", {"items": items})
         return res["atom_ids"]
 
-    def get(self, memory_id: str) -> Optional[Memory]:
-        res = self._post("/get", {"memory_id": memory_id})
+    def get(self, memory_id: str, consistency: Optional[str] = None) -> Optional[Memory]:
+        headers = {}
+        if consistency:
+            headers["X-Consistency-Level"] = consistency
+        res = self._post("/get", {"memory_id": memory_id}, headers=headers)
         if res.get("id"):
             atom = UnifiedMemoryAtom.from_dict(res)
             return Memory(atom)
         return None
 
-    def update(self, memory_id: str, text: Optional[str] = None, metadata: Optional[dict] = None) -> None:
-        self._post("/update", {"memory_id": memory_id, "text": text, "metadata": metadata})
+    def update(self, memory_id: str, text: Optional[str] = None, metadata: Optional[dict] = None, consistency: Optional[str] = None) -> None:
+        headers = {}
+        if consistency:
+            headers["X-Consistency-Level"] = consistency
+        self._post("/update", {"memory_id": memory_id, "text": text, "metadata": metadata}, headers=headers)
 
-    def delete(self, memory_id: str, hard: bool = False) -> None:
-        self._post("/delete", {"memory_id": memory_id, "hard": hard})
+    def delete(self, memory_id: str, hard: bool = False, consistency: Optional[str] = None) -> None:
+        headers = {}
+        if consistency:
+            headers["X-Consistency-Level"] = consistency
+        self._post("/delete", {"memory_id": memory_id, "hard": hard}, headers=headers)
 
     def query(self, text: str, k: int = 5, filters: Optional[dict] = None, min_score: float = 0.0) -> List[Memory]:
         res = self._post("/query", {"text": text, "k": k, "filters": filters, "min_score": min_score})
@@ -125,9 +141,12 @@ class AsyncRemoteEpochDB:
             
         self.client = httpx.AsyncClient(base_url=self.base_url, headers=headers, timeout=30.0)
 
-    async def _post(self, path: str, data: dict) -> dict:
+    async def _post(self, path: str, data: dict, headers: Optional[dict] = None) -> dict:
         try:
-            response = await self.client.post(path, json=data)
+            req_headers = self.client.headers.copy()
+            if headers:
+                req_headers.update(headers)
+            response = await self.client.post(path, json=data, headers=req_headers)
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:
@@ -148,6 +167,7 @@ class AsyncRemoteEpochDB:
         text: str,
         triples: Optional[Any] = None,
         metadata: Optional[dict] = None,
+        consistency: Optional[str] = None,
     ) -> str:
         if isinstance(triples, dict) and metadata is None:
             metadata = triples
@@ -155,7 +175,10 @@ class AsyncRemoteEpochDB:
         if triples is not None:
             metadata = metadata or {}
             metadata["triples"] = triples
-        res = await self._post("/remember", {"text": text, "metadata": metadata})
+        headers = {}
+        if consistency:
+            headers["X-Consistency-Level"] = consistency
+        res = await self._post("/remember", {"text": text, "metadata": metadata}, headers=headers)
         return res.get("id") or res.get("atom_id")
 
     async def remember_batch(self, items: list) -> List[str]:
@@ -179,8 +202,11 @@ class AsyncRemoteEpochDB:
             m["epoch_id"] = "active"
         return m
 
-    async def get(self, memory_id: str) -> Optional[Memory]:
-        res = await self._post("/get", {"memory_id": memory_id})
+    async def get(self, memory_id: str, consistency: Optional[str] = None) -> Optional[Memory]:
+        headers = {}
+        if consistency:
+            headers["X-Consistency-Level"] = consistency
+        res = await self._post("/get", {"memory_id": memory_id}, headers=headers)
         # Handle cases where memory structure is returned as 'memory' attribute or nested directly
         m_dict = res.get("memory") if "memory" in res else res
         if m_dict and m_dict.get("id"):
@@ -189,11 +215,17 @@ class AsyncRemoteEpochDB:
             return Memory(atom)
         return None
 
-    async def update(self, memory_id: str, text: Optional[str] = None, metadata: Optional[dict] = None) -> None:
-        await self._post("/update", {"memory_id": memory_id, "text": text, "metadata": metadata})
+    async def update(self, memory_id: str, text: Optional[str] = None, metadata: Optional[dict] = None, consistency: Optional[str] = None) -> None:
+        headers = {}
+        if consistency:
+            headers["X-Consistency-Level"] = consistency
+        await self._post("/update", {"memory_id": memory_id, "text": text, "metadata": metadata}, headers=headers)
 
-    async def delete(self, memory_id: str, hard: bool = False) -> None:
-        await self._post("/delete", {"memory_id": memory_id, "hard": hard})
+    async def delete(self, memory_id: str, hard: bool = False, consistency: Optional[str] = None) -> None:
+        headers = {}
+        if consistency:
+            headers["X-Consistency-Level"] = consistency
+        await self._post("/delete", {"memory_id": memory_id, "hard": hard}, headers=headers)
 
     async def query(self, text: str, k: int = 5, filters: Optional[dict] = None, min_score: float = 0.0) -> List[Memory]:
         # Formulate query payload compatible with both Coordinator ("query") and Standard Shard ("text")
