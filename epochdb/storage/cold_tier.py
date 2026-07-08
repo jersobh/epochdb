@@ -389,6 +389,8 @@ class ColdTier:
 
     def get_all_epochs(self) -> List[str]:
         epochs = []
+        if not os.path.exists(self.storage_dir):
+            return epochs
         for f in os.listdir(self.storage_dir):
             if f.endswith(".parquet"):
                 epoch_id = f[: -len(".parquet")]

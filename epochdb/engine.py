@@ -856,9 +856,10 @@ class AsyncEpochDB:
         text: str,
         triples: Optional[Any] = None,
         metadata: Optional[dict] = None,
+        memory_type: Optional[str] = None,
     ) -> str:
         import asyncio
-        return await asyncio.to_thread(self._db.remember, text, triples, metadata)
+        return await asyncio.to_thread(self._db.remember, text, triples, metadata, memory_type)
 
     async def recall_text(self, query: str, **kwargs) -> List[UnifiedMemoryAtom]:
         import asyncio
