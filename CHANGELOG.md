@@ -6,6 +6,10 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.6.0] - 2026-07-08
+### Added
+- **Tunable Write/Read Consistency Levels**: Supported specifying consistency levels (`one`, `quorum`, `all`) on the client wrappers `RemoteEpochDB` and `AsyncRemoteEpochDB` to enable consistency checks and active read repairs inside sharded clusters.
+
 ## [1.5.0] - 2026-07-04
 ### Added
 - **OpenAI Cloud Embedding Integration**: Implemented `OpenAIEmbedder` to support OpenAI and compatible API gateways (like Voyage, Cohere, local vLLM, etc.) using direct HTTP calls, avoiding hard third-party package dependencies.
