@@ -6,6 +6,12 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.6.1] - 2026-07-08
+### Fixed
+- **get_all_epochs FileNotFoundError**: Added existence check on the storage directory in `get_all_epochs` to prevent crashes when a partition is deleted/reset concurrently with read queries.
+- **remember/AsyncEpochDB memory_type parameter**: Added the `memory_type` keyword parameter to `AsyncEpochDB.remember` wrappers in the SDK to ensure compatibility with client and server components.
+- **Remote client memory_type support**: Extended `RemoteEpochDB.remember` and `AsyncRemoteEpochDB.remember` client wrappers to accept and transmit the `memory_type` parameter to sharded nodes.
+
 ## [1.6.0] - 2026-07-08
 ### Added
 - **Tunable Write/Read Consistency Levels**: Supported specifying consistency levels (`one`, `quorum`, `all`) on the client wrappers `RemoteEpochDB` and `AsyncRemoteEpochDB` to enable consistency checks and active read repairs inside sharded clusters.
