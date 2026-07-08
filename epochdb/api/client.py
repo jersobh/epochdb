@@ -49,6 +49,7 @@ class RemoteEpochDB:
         triples: Optional[Any] = None,
         metadata: Optional[dict] = None,
         consistency: Optional[str] = None,
+        memory_type: Optional[str] = None,
     ) -> str:
         if isinstance(triples, dict) and metadata is None:
             metadata = triples
@@ -59,7 +60,10 @@ class RemoteEpochDB:
         headers = {}
         if consistency:
             headers["X-Consistency-Level"] = consistency
-        res = self._post("/remember", {"text": text, "metadata": metadata}, headers=headers)
+        payload = {"text": text, "metadata": metadata}
+        if memory_type:
+            payload["memory_type"] = memory_type
+        res = self._post("/remember", payload, headers=headers)
         return res["atom_id"]
 
     def remember_batch(self, items: list) -> List[str]:
@@ -168,6 +172,7 @@ class AsyncRemoteEpochDB:
         triples: Optional[Any] = None,
         metadata: Optional[dict] = None,
         consistency: Optional[str] = None,
+        memory_type: Optional[str] = None,
     ) -> str:
         if isinstance(triples, dict) and metadata is None:
             metadata = triples
@@ -178,7 +183,10 @@ class AsyncRemoteEpochDB:
         headers = {}
         if consistency:
             headers["X-Consistency-Level"] = consistency
-        res = await self._post("/remember", {"text": text, "metadata": metadata}, headers=headers)
+        payload = {"text": text, "metadata": metadata}
+        if memory_type:
+            payload["memory_type"] = memory_type
+        res = await self._post("/remember", payload, headers=headers)
         return res.get("id") or res.get("atom_id")
 
     async def remember_batch(self, items: list) -> List[str]:
