@@ -431,8 +431,15 @@ class ColdTier:
         pruned_ids = []
         active_states = {}
         final_atoms = []
+        seen_ids = set()
         
         for atom in all_atoms:
+            if atom.id in seen_ids:
+                pruned_count += 1
+                pruned_ids.append(atom.id)
+                continue
+            seen_ids.add(atom.id)
+
             if atom.metadata.get("_deleted"):
                 pruned_count += 1
                 pruned_ids.append(atom.id)
