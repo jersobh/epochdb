@@ -270,11 +270,70 @@ class EpochDB:
             # Update Global Entity Index.
             associations = []
             for subj, pred, obj in triples:
-                for entity in (subj, pred, obj):
-                    associations.append((entity, atom.id, self.current_epoch_id))
+                associations.append((str(subj), atom.id, self.current_epoch_id))
+                associations.append((str(obj), atom.id, self.current_epoch_id))
                 self.predicates.add(pred)
             
             self.kg_manager.add_associations_batch(associations)
+            self._check_epoch_expiry()
+            return atom.id
+
+    def replace_memory(
+        self,
+        atom_id: str,
+        payload: Any,
+        embedding: np.ndarray,
+        triples: List[tuple],
+        metadata: Optional[dict] = None,
+    ) -> str:
+        """Replace triples (and optional payload/metadata) for an existing hot or cold atom."""
+        with self._internal_lock:
+            if triples is None:
+                triples = []
+
+            norm = np.linalg.norm(embedding)
+            if norm > 1e-10:
+                embedding = embedding / norm
+
+            self.kg_manager.remove_associations([atom_id])
+
+            atom = self.hot_tier.atoms.get(atom_id)
+            if atom is None:
+                for epoch_id in self.cold_tier.get_all_epochs():
+                    loaded = self.cold_tier.load_atom_metadata(epoch_id, [atom_id])
+                    if loaded:
+                        atom = loaded[0]
+                        break
+
+            if atom is None:
+                return self.add_memory(
+                    payload,
+                    embedding,
+                    triples,
+                    atom_id=atom_id,
+                    metadata=metadata,
+                )
+
+            atom.payload = payload
+            atom.embedding = embedding
+            atom.triples = [tuple(t) for t in triples]
+            if metadata is not None:
+                atom.metadata = metadata
+            atom.epoch_id = self.current_epoch_id
+
+            self.hot_tier._add_atom(atom)
+            self.hot_tier.quant_index.index_atom(atom)
+
+            associations = []
+            for subj, pred, obj in triples:
+                associations.append((str(subj), atom.id, self.current_epoch_id))
+                associations.append((str(obj), atom.id, self.current_epoch_id))
+                self.predicates.add(pred)
+            self.kg_manager.add_associations_batch(associations)
+
+            with MultiIndexTransaction(self.wal, self.hot_tier) as tx:
+                tx.add(atom)
+
             self._check_epoch_expiry()
             return atom.id
 
@@ -346,8 +405,8 @@ class EpochDB:
                     tx.add(atom)
                     
                     for subj, pred, obj in triples:
-                        for entity in (subj, pred, obj):
-                            associations.append((entity, atom.id, self.current_epoch_id))
+                        associations.append((str(subj), atom.id, self.current_epoch_id))
+                        associations.append((str(obj), atom.id, self.current_epoch_id))
                         self.predicates.add(pred)
                     
                     ids.append(atom.id)
@@ -405,6 +464,11 @@ class EpochDB:
             analytics = ColdTierAnalytics(self.storage_dir)
             reflector = QuantitativeReflectionManager(analytics, self.hot_tier)
             return reflector.reflect_on_entity(entity, field, confidence_threshold)
+
+    def get_hub_entities(self, limit: int = 50) -> List[str]:
+        """Return the most-connected entities for graph visualization."""
+        with self._internal_lock:
+            return self.kg_manager.get_entities_by_degree(limit=limit)
 
     def get_entities(self, prefix: str = None) -> List[str]:
         """Fetch all entities or those matching a prefix."""

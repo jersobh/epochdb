@@ -233,3 +233,56 @@ def test_custom_parquet_compression(storage_dir):
     
     db.close()
 
+
+def test_kg_indexes_subjects_and_objects_only(test_db):
+    emb = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    test_db.add_memory(
+        "Alice works at Acme",
+        emb,
+        triples=[("Alice", "works_at", "Acme")],
+    )
+
+    entities = set(test_db.get_entities())
+    assert "Alice" in entities
+    assert "Acme" in entities
+    assert "works_at" not in entities
+
+    hubs = test_db.get_hub_entities(limit=10)
+    assert "Alice" in hubs
+    assert "Acme" in hubs
+
+
+def test_replace_memory_deduplication_and_compaction(test_db):
+    emb1 = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    atom_id = test_db.add_memory(
+        "Alice works at Acme",
+        emb1,
+        triples=[("Alice", "works_at", "Acme")],
+    )
+    test_db.force_checkpoint() # Push Alice to Cold Tier
+
+    # Now replace the memory
+    emb2 = np.array([0.0, 1.0, 0.0, 0.0], dtype=np.float32)
+    test_db.replace_memory(
+        atom_id,
+        "Alice works at Beta",
+        emb2,
+        triples=[("Alice", "works_at", "Beta")],
+    )
+
+    # 1. Query by emb2 - should return Alice works at Beta (the new one)
+    results = test_db.recall(emb2, top_k=5)
+    matches = [r for r in results if r.id == atom_id]
+    assert len(matches) == 1
+    assert matches[0].payload == "Alice works at Beta"
+
+    # 2. Run compaction and ensure we only have one compacted copy on disk, and it is Beta
+    test_db.force_checkpoint() # Push Beta to Cold Tier
+    test_db.compact()
+    
+    # Reload from disk (clear hot tier and verify cold tier state)
+    atom = test_db.get(atom_id)
+    assert atom is not None
+    assert atom.text == "Alice works at Beta"
+    assert atom.triples == [["Alice", "works_at", "Beta"]]
+

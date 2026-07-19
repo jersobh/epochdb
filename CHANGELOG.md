@@ -6,6 +6,11 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.6.2] - 2026-07-19
+### Fixed
+- **Query candidate overwriting**: Added candidate age check based on `created_at` in retrieval search, preventing older stale versions of replaced/updated memories from overwriting newer versions.
+- **Compaction deduplication**: Deduplicate consolidated historical memory atoms by `atom.id` in `ColdTier.compact` to prune obsolete copies of updated memories.
+
 ## [1.6.1] - 2026-07-08
 ### Fixed
 - **get_all_epochs FileNotFoundError**: Added existence check on the storage directory in `get_all_epochs` to prevent crashes when a partition is deleted/reset concurrently with read queries.
