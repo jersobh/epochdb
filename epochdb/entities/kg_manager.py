@@ -112,10 +112,34 @@ class KGManager:
         with self._lock:
             try:
                 cursor = self._conn.cursor()
-                cursor.execute("SELECT DISTINCT entity FROM kg_index")
+                cursor.execute(
+                    "SELECT DISTINCT entity FROM kg_index WHERE entity NOT LIKE 'CLAIM:%'"
+                )
                 return [row[0] for row in cursor.fetchall()]
             except Exception as e:
                 logger.error(f"Failed to fetch all entities: {e}")
+                return []
+
+    def get_entities_by_degree(self, limit: int = 50, min_degree: int = 1) -> List[str]:
+        """Return entities ranked by how many atoms they appear in (hub nodes first)."""
+        with self._lock:
+            try:
+                cursor = self._conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT entity, COUNT(DISTINCT atom_id) AS degree
+                    FROM kg_index
+                    WHERE entity NOT LIKE 'CLAIM:%'
+                    GROUP BY entity
+                    HAVING degree >= ?
+                    ORDER BY degree DESC, entity ASC
+                    LIMIT ?
+                    """,
+                    (min_degree, limit),
+                )
+                return [row[0] for row in cursor.fetchall()]
+            except Exception as e:
+                logger.error(f"Failed to fetch entities by degree: {e}")
                 return []
 
     def get_entities_by_prefix(self, prefix: str) -> List[str]:

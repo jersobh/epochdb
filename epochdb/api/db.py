@@ -190,7 +190,11 @@ class EpochDB(EngineEpochDB):
             batch_items = []
             for i, (text, metadata) in enumerate(zip(texts, metadatas)):
                 triples = metadata.get("triples") or []
-                if not triples:
+                if not triples and self.auto_extract:
+                    from epochdb.core.fact_extractor import FactExtractor
+                    extractor = FactExtractor(self, self.extraction_model)
+                    triples = extractor.extract(text)
+                elif not triples:
                     extracted = self.extract_entities(text)
                     triples = [(str(e), "mentions", str(e)) for e in extracted]
 
@@ -281,7 +285,7 @@ class EpochDB(EngineEpochDB):
             super().fork(parent_epoch_id, new_epoch_id)
             return new_epoch_id
 
-    def query(self, text: str, k: int = 5, filters: Optional[dict] = None, min_score: float = 0.0, memory_type: Optional[str] = None, context_window: int = 0) -> List[Memory]:
+    def query(self, text: str, k: int = 5, filters: Optional[dict] = None, min_score: float = 0.0, memory_type: Optional[str] = None, context_window: int = 0, expand_hops: int = 0) -> List[Memory]:
         """Query memory using semantic search."""
         query_entities = [str(e) for e in self.extract_entities(text)]
         if self._model_name:
@@ -294,7 +298,7 @@ class EpochDB(EngineEpochDB):
             atoms = self.retriever.search(
                 query_emb=emb,
                 top_k=k,
-                expand_hops=0,
+                expand_hops=max(0, int(expand_hops or 0)),
                 query_entities=query_entities,
                 filters=filters,
                 context_window=context_window,

@@ -157,6 +157,14 @@ class RetrievalManager:
         # Candidates: {atom_id: (atom, semantic_similarity)}
         candidates: Dict[str, tuple] = {}
 
+        def add_candidate(atom: UnifiedMemoryAtom, score: float):
+            if atom.id in candidates:
+                existing_atom, _ = candidates[atom.id]
+                if atom.created_at <= existing_atom.created_at:
+                    return
+            candidates[atom.id] = (atom, score)
+
+
         # --- Quantitative Intent Extraction ---
         # "high power usage" -> (field="power_usage", op=">", threshold=learned/heuristic)
         quant_intent = self._extract_quant_intent(original_query_entities)
@@ -171,7 +179,7 @@ class RetrievalManager:
                 )
             else:
                 score = 0.0
-            candidates[atom.id] = (atom, float(score))
+            add_candidate(atom, float(score))
 
         # --- Semantic Bootstrapping ---
         # If no query_entities provided, we 'bootstrap' them from the top semantic matches
@@ -211,7 +219,7 @@ class RetrievalManager:
                                 np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
                             )
                         # Entity match gets a baseline boost to ensure retrieval
-                        candidates[a.id] = (a, float(sim) + 0.5)
+                        add_candidate(a, float(sim) + 0.5)
                 
                 # Also check Hot Tier
                 for a_id, _ in associations:
@@ -222,7 +230,7 @@ class RetrievalManager:
                             sim = np.dot(a.embedding, query_emb) / (
                                 np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
                             )
-                        candidates[a.id] = (a, float(sim) + 0.5)
+                        add_candidate(a, float(sim) + 0.5)
 
         # --- Keyword-based Entity Extraction (Auto-Expansion) ---
         # If no explicit entities are passed, we scan the query embedding surface 
@@ -255,7 +263,7 @@ class RetrievalManager:
                                 np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10
                             )
                             atom.access_count += self._access_deltas.get(atom.id, 0)
-                            candidates[atom.id] = (atom, float(sim))
+                            add_candidate(atom, float(sim))
                     except Exception as e:
                         logger.error(f"Search failed for epoch {future_to_epoch[future]}: {e}")
 
@@ -327,7 +335,7 @@ class RetrievalManager:
                                          # it should count as an entity match for Factor C.
                                          query_entities.add(ent)
                                          new_neighbors.add(n_atom.id)
-                                         candidates[n_atom.id] = (n_atom, float(sim))
+                                         add_candidate(n_atom, float(sim))
                 
                 # For next hop, only expand the newly found neighbors up to expansion_limit
                 if len(new_neighbors) > expansion_limit:
