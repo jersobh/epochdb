@@ -46,13 +46,18 @@ def import_astraea(astraea_path: str):
     if astraea_path and os.path.exists(astraea_path):
         sys.path.insert(0, os.path.abspath(astraea_path))
     try:
-        from astraea import EpochBlackboard
-        from astraea.tiler import ContextTiler
-        from astraea.types import LineageContext
+        try:
+            from astraea import EpochBlackboard
+            from astraea.tiler import ContextTiler
+            from astraea.types import LineageContext
+        except ImportError:
+            from aster import EpochBlackboard
+            from aster.tiler import ContextTiler
+            from aster.types import LineageContext
         HAS_ASTRAEA = True
     except ImportError as e:
         HAS_ASTRAEA = False
-        print(f"Warning: Could not import Astraea framework from {astraea_path}: {e}")
+        print(f"Warning: Could not import Astraea/Aster framework from {astraea_path}: {e}")
 
 # Try importing tiktoken for token counting
 try:

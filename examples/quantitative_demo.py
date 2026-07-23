@@ -23,7 +23,7 @@ def quantitative_demo():
         # 2. SCALAR: Ingest a temperature reading
         print("\n1. Ingesting Scalar Data...")
         emb = np.random.rand(dim).astype(np.float32)
-        s_payload = ScalarPayload(value=22.5, unit="C", uncertainty=0.1)
+        s_payload = ScalarPayload(value=22.5, unit="degC", uncertainty_low=0.1, uncertainty_high=0.1)
         db.add_memory(
             payload=s_payload, 
             embedding=emb, 
@@ -31,7 +31,7 @@ def quantitative_demo():
         )
         
         # This update should trigger the cascade
-        s_payload_hot = ScalarPayload(value=28.0, unit="C", uncertainty=0.1)
+        s_payload_hot = ScalarPayload(value=28.0, unit="degC", uncertainty_low=0.1, uncertainty_high=0.1)
         db.add_memory(
             payload=s_payload_hot, 
             embedding=emb, 
@@ -40,7 +40,7 @@ def quantitative_demo():
 
         # 3. RANGE QUERY: Find all atoms with temperature between 20 and 30
         print("\n2. Executing Range Query...")
-        results = db.retriever.query_range("temperature", 20.0, 30.0, unit="C")
+        results = db.retriever.query_range("temperature", 20.0, 30.0, unit="degC")
         print(f"  Found {len(results)} atoms in range [20, 30]°C.")
         for r in results:
             print(f"  - Atom {r.id}: {r.payload.value}{r.payload.unit}")

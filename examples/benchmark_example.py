@@ -22,8 +22,11 @@ from typing import TypedDict, List, Tuple
 warnings.filterwarnings("ignore", category=UserWarning)
 logging.basicConfig(level=logging.ERROR)
 
-from utils.shared import load_dotenv
-load_dotenv(os.path.dirname(os.path.abspath(__file__)))
+try:
+    from utils.shared import load_dotenv
+    load_dotenv(os.path.dirname(os.path.abspath(__file__)))
+except ImportError:
+    pass
 
 import numpy as np
 from langgraph.graph import StateGraph, END
