@@ -65,5 +65,19 @@ class TestColdTierAnalytics(unittest.TestCase):
         self.assertAlmostEqual(anomalies[0]["value"], 1000.0)
         self.assertEqual(anomalies[0]["unit"], "m")
 
+    def test_duckdb_sql_query(self):
+        """Test DuckDB SQL execution over Cold Tier Parquet archives."""
+        for i in range(5):
+            s = ScalarPayload(value=float(i * 10), unit="degC")
+            self.db.add_memory(payload=s, embedding=np.zeros(128), triples=[("sensor2", "temp", str(i))])
+        
+        self.db.force_checkpoint()
+
+        # Execute DuckDB query via engine
+        res = self.db.query_sql("SELECT COUNT(*) as count, AVG(scalar_value) as avg_val FROM cold_tier WHERE scalar_unit = 'degC'")
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["count"], 5)
+        self.assertEqual(res[0]["avg_val"], 20.0)
+
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,11 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.7.0] - 2026-07-23
+### Added
+- **DuckDB Analytical Query Engine Integration**: Embedded DuckDB support into `ColdTierAnalytics` to execute high-performance vectorized SQL queries over Cold Tier Parquet archives (`*.parquet`).
+- **`query_sql()` Methods**: Exposed `query_sql(sql)` on `EpochDB` and `AsyncEpochDB` allowing users to run SQL aggregations, filtering, and reporting directly over historical memory archives.
+
 ## [1.6.2] - 2026-07-19
 ### Fixed
 - **Query candidate overwriting**: Added candidate age check based on `created_at` in retrieval search, preventing older stale versions of replaced/updated memories from overwriting newer versions.
