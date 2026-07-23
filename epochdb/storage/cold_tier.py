@@ -630,3 +630,54 @@ class ColdTierAnalytics:
                     "unit": base_unit
                 })
         return anomalies
+
+    def query_sql(self, sql: str) -> List[Dict[str, Any]]:
+        """Executes a SQL query over Cold Tier Parquet archives using DuckDB."""
+        table = self.query_sql_table(sql)
+        if table is None:
+            return []
+        return table.to_pylist()
+
+    def query_sql_table(self, sql: str) -> Optional[pa.Table]:
+        """Executes a SQL query over Cold Tier Parquet archives using DuckDB, returning a PyArrow Table."""
+        try:
+            import duckdb
+        except ImportError:
+            raise ImportError(
+                "duckdb package is required for SQL querying over Cold Tier archives. "
+                "Install it via 'pip install duckdb' or 'poetry add duckdb'."
+            )
+
+        if not os.path.exists(self.storage_dir):
+            return None
+
+        parquet_files = [
+            os.path.join(self.storage_dir, f)
+            for f in os.listdir(self.storage_dir)
+            if f.endswith(".parquet")
+        ]
+        if not parquet_files:
+            return None
+
+        con = duckdb.connect()
+        try:
+            glob_path = os.path.join(self.storage_dir, "*.parquet")
+            con.execute(f"CREATE VIEW cold_tier AS SELECT * FROM read_parquet('{glob_path}')")
+            rel = con.execute(sql)
+            return rel.to_arrow_table()
+        except Exception as e:
+            logger.error(f"DuckDB query execution error: {e}")
+            raise
+        finally:
+            con.close()
+
+    def query_sql_df(self, sql: str):
+        """Executes a SQL query over Cold Tier Parquet archives using DuckDB, returning a DataFrame if pandas is installed."""
+        table = self.query_sql_table(sql)
+        if table is None:
+            return None
+        try:
+            return table.to_pandas()
+        except Exception:
+            return table
+

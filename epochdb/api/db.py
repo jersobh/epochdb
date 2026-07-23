@@ -508,6 +508,11 @@ class AsyncEpochDB:
         self._db = await self._get_db()
         return self
 
+    async def query_sql(self, sql: str) -> List[Dict[str, Any]]:
+        import asyncio
+        db = await self._get_db()
+        return await asyncio.to_thread(db.query_sql, sql)
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         import asyncio
         if self._db:

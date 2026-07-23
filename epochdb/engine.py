@@ -465,6 +465,12 @@ class EpochDB:
             reflector = QuantitativeReflectionManager(analytics, self.hot_tier)
             return reflector.reflect_on_entity(entity, field, confidence_threshold)
 
+    def query_sql(self, sql: str) -> List[Dict[str, Any]]:
+        """Run DuckDB SQL analytics directly over Cold Tier Parquet archives."""
+        with self._internal_lock:
+            analytics = ColdTierAnalytics(self.storage_dir)
+            return analytics.query_sql(sql)
+
     def get_hub_entities(self, limit: int = 50) -> List[str]:
         """Return the most-connected entities for graph visualization."""
         with self._internal_lock:
@@ -914,6 +920,10 @@ class AsyncEpochDB:
         import asyncio
         if self._db:
             await asyncio.to_thread(self._db.close)
+
+    async def query_sql(self, sql: str) -> List[Dict[str, Any]]:
+        import asyncio
+        return await asyncio.to_thread(self._db.query_sql, sql)
 
     async def remember(
         self,
