@@ -303,6 +303,21 @@ Supported methods include `"zstd"`, `"snappy"`, `"lz4"`, `"gzip"`, `"brotli"`, a
 ### 4. High-Performance io_uring WAL
 On Linux hosts, EpochDB automatically compiles and loads a C shared library to write WAL appends through `io_uring` and Direct I/O (`O_DIRECT`), bypassing the kernel page cache and system call scheduling overhead to deliver up to **5x speedups** on synchronous operations with natural queue backpressure safety.
 
+### 5. DuckDB SQL Analytics over Cold Tier Archives
+
+EpochDB integrates with **DuckDB** to allow executing high-performance vectorized SQL queries over historical memory archives (`*.parquet`). The `cold_tier` view is registered automatically:
+
+```python
+# Execute vectorized SQL aggregations over all historical Parquet archives
+results = db.query_sql("""
+    SELECT 
+        COUNT(*) as total_memories,
+        AVG(scalar_value) as avg_value
+    FROM cold_tier
+    WHERE scalar_unit = 'degC'
+""")
+```
+
 ---
 
 ## LangGraph Integration
