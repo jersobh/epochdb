@@ -30,8 +30,24 @@ class Memory:
         self.namespace = atom.namespace
         self._atom = atom
 
-    def __repr__(self):
-        return f"Memory(id={self.id!r}, text={self.text!r}, metadata={self.metadata})"
+def _build_pairwise_triples(extracted: list) -> list:
+    seen = set()
+    entities = []
+    for e in extracted:
+        s = str(e)
+        if s and s not in seen:
+            seen.add(s)
+            entities.append(s)
+    if len(entities) >= 2:
+        res = []
+        for i in range(len(entities) - 1):
+            res.append((entities[i], "co_occurs_with", entities[i + 1]))
+        if len(entities) > 2:
+            res.append((entities[0], "co_occurs_with", entities[-1]))
+        return res
+    elif len(entities) == 1:
+        return [(entities[0], "mentions", entities[0])]
+    return []
 
 
 class Entity(str):
@@ -146,7 +162,7 @@ class EpochDB(EngineEpochDB):
                 triples = extractor.extract(text)
             elif not triples:
                 extracted = self.extract_entities(text)
-                triples = [(str(e), "mentions", str(e)) for e in extracted]
+                triples = _build_pairwise_triples(extracted)
 
             atom_id = self.add_memory(
                 payload=text,
@@ -196,7 +212,7 @@ class EpochDB(EngineEpochDB):
                     triples = extractor.extract(text)
                 elif not triples:
                     extracted = self.extract_entities(text)
-                    triples = [(str(e), "mentions", str(e)) for e in extracted]
+                    triples = _build_pairwise_triples(extracted)
 
                 batch_items.append({
                     "payload": text,
