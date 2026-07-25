@@ -66,21 +66,37 @@ class LocalFactExtractor:
         self.engine = engine
 
     def extract(self, text: str) -> List[Tuple[str, str, str]]:
-        res = []
+        raw_entities = []
         if self.engine is not None:
             try:
-                entities = self.engine.extract_entities(text)
-                res = [(str(e), "mentions", str(e)) for e in entities]
+                raw_entities = [str(e) for e in self.engine.extract_entities(text) if str(e)]
             except Exception:
                 pass
         
         # Fallback to simple heuristic if engine returns no entities (e.g. brand new DB)
-        if not res:
+        if not raw_entities:
             words = [w.strip(".,!?;:()\"'") for w in text.split() if w.strip()]
             nouns = [w for w in words if w and w[0].isupper()]
             if not nouns:
                 nouns = [w for w in words if len(w) > 3][:3]
-            res = [(str(n), "mentions", str(n)) for n in nouns if n]
+            raw_entities = [str(n) for n in nouns if n]
+
+        seen = set()
+        entities = []
+        for e in raw_entities:
+            if e not in seen:
+                seen.add(e)
+                entities.append(e)
+
+        res = []
+        if len(entities) >= 2:
+            for i in range(len(entities) - 1):
+                res.append((entities[i], "co_occurs_with", entities[i + 1]))
+            if len(entities) > 2:
+                res.append((entities[0], "co_occurs_with", entities[-1]))
+        elif len(entities) == 1:
+            res.append((entities[0], "mentions", entities[0]))
+
         return res
 
 class FactExtractor:

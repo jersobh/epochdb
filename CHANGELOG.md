@@ -6,6 +6,10 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.8.0] - 2026-07-25
+### Changed
+- **Pairwise Entity Relationship Triples**: Updated `LocalFactExtractor` and fallback memory entity extraction to generate pairwise co-occurrence relationship triples `(entity1, "co_occurs_with", entity2)` between distinct entities, eliminating isolated single-entity self-loops (`(entity, "mentions", entity)`).
+
 ## [1.7.0] - 2026-07-23
 ### Added
 - **DuckDB Analytical Query Engine Integration**: Embedded DuckDB support into `ColdTierAnalytics` to execute high-performance vectorized SQL queries over Cold Tier Parquet archives (`*.parquet`).
