@@ -35,6 +35,7 @@ Flat vector databases retrieve text based on semantic similarity but struggle to
 - **Contextualized Retrieval (Temporal neighbor expansion)**: Retrieves chronological context turns immediately surrounding matched memories.
 - **Tiered HNSW Hierarchy**: Sub-millisecond recall across working memory (L1 RAM) and historical archives (L2 Disk).
 - **Memory Forking & Lineage**: Supports logical branches (`db.fork`) for multi-agent collaboration and hypothetical reasoning without copying data.
+- **Pairwise Entity Graph Extraction**: Automatically generates co-occurrence relationship triples between extracted entities for connected graph visualizations.
 - **Rich Domain Objects**: Returns structured `Memory`, `Entity`, and `Graph` abstractions rather than raw database tuples.
 
 ---
