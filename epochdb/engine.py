@@ -117,6 +117,7 @@ class EpochDB:
         self.current_epoch_id = f"epoch_{uuid.uuid4().hex[:8]}"
         self.epoch_start_time = time.time()
         self._last_timestamp = 0.0
+        self.deleted_atom_ids: Set[str] = set()
         self.predicates: Set[str] = set()  # Track unique predicates for extraction boost
 
         # --- Tiers ---
@@ -193,8 +194,13 @@ class EpochDB:
         Replay uncommitted ADD records from the WAL after a crash.
         Any atoms that were ADD'd but not COMMIT'd are restored to the Hot Tier.
         """
-        pending = self.wal.replay()
+        pending, deleted_ids = self.wal.replay_state()
+        self.deleted_atom_ids.update(deleted_ids)
+        if deleted_ids:
+            self.kg_manager.remove_associations(list(deleted_ids))
         if not pending:
+            if deleted_ids:
+                self.kg_manager.commit()
             return
 
         logger.warning(
@@ -215,8 +221,6 @@ class EpochDB:
             except Exception as e:
                 logger.error(f"Failed to replay atom from WAL: {e}")
 
-        # Clear WAL now that atoms are safely in the Hot Tier.
-        self.wal.clear()
         self.kg_manager.commit()
         logger.info("WAL replay complete.")
 
@@ -262,6 +266,7 @@ class EpochDB:
             if metadata is not None:
                 atom_kwargs["metadata"] = metadata
             atom = UnifiedMemoryAtom(**atom_kwargs)
+            self.deleted_atom_ids.discard(atom.id)
 
             # ACID Multi-Index Transaction.
             with MultiIndexTransaction(self.wal, self.hot_tier) as tx:
@@ -321,8 +326,7 @@ class EpochDB:
                 atom.metadata = metadata
             atom.epoch_id = self.current_epoch_id
 
-            self.hot_tier._add_atom(atom)
-            self.hot_tier.quant_index.index_atom(atom)
+            self.hot_tier.update_atom(atom)
 
             associations = []
             for subj, pred, obj in triples:
@@ -440,6 +444,7 @@ class EpochDB:
                     results = [a for a in results if a.memory_type == mt]
                 except ValueError:
                     pass
+            results = [a for a in results if a.id not in self.deleted_atom_ids]
             self._check_epoch_expiry()
             return results
 
@@ -824,10 +829,12 @@ class EpochDB:
             try:
                 if atoms:
                     self.cold_tier.serialize_epoch(epoch_id, atoms)
-                # Flush succeeded — safe to clear the WAL now.
-                wal.clear()
+                # Flush succeeded — record precisely which atoms are durable.
+                # Never truncate the full WAL: new writes may have arrived
+                # while this asynchronous checkpoint was serializing.
+                wal.checkpoint([atom.id for atom in atoms], epoch_id)
                 logger.info(
-                    f"Async flush complete for {epoch_id}. WAL cleared."
+                    f"Async flush complete for {epoch_id}. WAL checkpointed."
                 )
             except Exception as e:
                 logger.error(
@@ -860,8 +867,7 @@ class EpochDB:
             if atoms_to_flush:
                 self.cold_tier.serialize_epoch(epoch_to_flush, atoms_to_flush)
 
-            # Synchronous: safe to clear WAL immediately after write.
-            self.wal.clear()
+            self.wal.checkpoint([atom.id for atom in atoms_to_flush], epoch_to_flush)
 
     # -------------------------------------------------------------------------
     # Persistence Helpers
@@ -882,7 +888,7 @@ class EpochDB:
             if atoms:
                 logger.info(f"Synchronously flushing {len(atoms)} atoms to cold tier...")
                 self.cold_tier.serialize_epoch(self.current_epoch_id, atoms)
-                self.wal.clear()
+                self.wal.checkpoint([atom.id for atom in atoms], self.current_epoch_id)
                 self.hot_tier.clear()
                 self.current_epoch_id = f"epoch_{uuid.uuid4().hex[:8]}"
                 self.epoch_start_time = time.time()
