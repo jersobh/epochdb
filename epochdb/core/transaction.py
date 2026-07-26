@@ -241,15 +241,28 @@ class WriteAheadLog:
         """Log a persistent delete operation."""
         self.append("DELETE", {"id": atom_id})
 
-    def replay(self) -> list:
+    def checkpoint(self, atom_ids: list[str], epoch_id: str | None = None):
+        """Mark a set of WAL-backed atoms durable in an epoch file.
+
+        The marker is appended only after the Parquet write succeeds.  It lets
+        recovery skip flushed atoms without truncating writes that arrived while
+        an asynchronous checkpoint was in progress.
         """
-        Read committed ADD records from the WAL for crash recovery.
-        Returns a list of atom dicts that were successfully committed.
+        self.append("CHECKPOINT", {"ids": atom_ids, "epoch_id": epoch_id})
+
+    def replay_state(self) -> tuple[list, set[str]]:
+        """
+        Read the WAL for crash recovery.
+
+        Returns active committed atoms plus durable hard-delete tombstones.
+        CHECKPOINT records remove only the atom ids proven durable in cold
+        storage; the log is intentionally retained until a future compaction.
         """
         if not os.path.exists(self.wal_path):
-            return []
+            return [], set()
 
-        committed = []
+        committed = {}
+        deleted = set()
         current_tx = []
         try:
             with open(self.wal_path, "r", errors="ignore") as f:
@@ -263,17 +276,39 @@ class WriteAheadLog:
                         if op == "ADD":
                             current_tx.append(record["data"])
                         elif op == "COMMIT":
-                            committed.extend(current_tx)
+                            for atom in current_tx:
+                                atom_id = atom.get("id")
+                                if atom_id:
+                                    committed[atom_id] = atom
+                                    deleted.discard(atom_id)
                             current_tx = []
                         elif op == "ROLLBACK":
                             current_tx = []
+                        elif op == "DELETE":
+                            atom_id = record.get("data", {}).get("id")
+                            if atom_id:
+                                deleted.add(atom_id)
+                                committed.pop(atom_id, None)
+                        elif op == "CHECKPOINT":
+                            epoch_id = record.get("data", {}).get("epoch_id")
+                            for atom_id in record.get("data", {}).get("ids", []):
+                                atom = committed.get(atom_id)
+                                if atom is not None and (
+                                    epoch_id is None or atom.get("epoch_id") == epoch_id
+                                ):
+                                    committed.pop(atom_id, None)
                     except json.JSONDecodeError:
                         continue
         except OSError as e:
             logger.error(f"Failed to read WAL for replay: {e}")
-            return []
+            return [], set()
 
         # Any uncommitted additions left in current_tx at EOF are discarded (rolled back).
+        return list(committed.values()), deleted
+
+    def replay(self) -> list:
+        """Backward-compatible active atom replay helper."""
+        committed, _ = self.replay_state()
         return committed
 
     def close(self):

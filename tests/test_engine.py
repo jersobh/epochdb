@@ -75,6 +75,50 @@ def test_tier_checkpoint(test_db, storage_dir):
     assert len(parquet_files) >= 1
 
 
+def test_checkpoint_keeps_writes_from_new_epoch_recoverable(test_db, storage_dir):
+    """A checkpoint marker must not erase writes made after its epoch rotated."""
+    emb = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    first_id = test_db.add_memory("before checkpoint", emb)
+    test_db.force_checkpoint()
+    second_id = test_db.add_memory("after checkpoint", emb)
+
+    test_db.close()
+    recovered = EpochDB(storage_dir=storage_dir, dim=4, model=None)
+    try:
+        assert recovered.get(second_id) is not None
+        assert recovered.get(first_id) is not None
+    finally:
+        recovered.close()
+
+
+def test_hard_delete_removes_hot_vector_and_survives_restart(test_db, storage_dir):
+    emb = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    atom_id = test_db.add_memory("delete me", emb)
+    test_db.delete(atom_id, hard=True)
+
+    assert test_db.get(atom_id) is None
+    assert all(atom.id != atom_id for atom in test_db.recall(emb, top_k=5))
+
+    test_db.close()
+    recovered = EpochDB(storage_dir=storage_dir, dim=4, model=None)
+    try:
+        assert recovered.get(atom_id) is None
+    finally:
+        recovered.close()
+
+
+def test_update_replaces_hot_vector_index(test_db):
+    old_emb = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    new_emb = np.array([0.0, 1.0, 0.0, 0.0], dtype=np.float32)
+    atom_id = test_db.add_memory("old", old_emb)
+    atom = test_db.hot_tier.atoms[atom_id]
+    atom.embedding = new_emb
+    test_db.hot_tier.update_atom(atom)
+
+    results = test_db.hot_tier.query_vector(new_emb, top_k=1)
+    assert results[0].id == atom_id
+
+
 # ---------------------------------------------------------------------------
 # Dict payload round-trip through cold tier
 # ---------------------------------------------------------------------------
