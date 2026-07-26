@@ -83,7 +83,13 @@ class LocalFactExtractor:
 
         seen = set()
         entities = []
+        predicates = set()
+        if self.engine is not None:
+            predicates = {str(p) for p in getattr(self.engine, "predicates", set()) or set()}
         for e in raw_entities:
+            # Predicates matched by extract_entities Pass-2 must not become graph nodes.
+            if e in predicates or e.lower().replace(" ", "_") in {p.lower() for p in predicates}:
+                continue
             if e not in seen:
                 seen.add(e)
                 entities.append(e)
