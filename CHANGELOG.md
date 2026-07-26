@@ -6,6 +6,12 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.8.4] - 2026-07-26
+### Fixed
+- **Checkpoint durability**: WAL checkpoints now acknowledge only the atoms durably written for their epoch, preserving writes that arrive during an asynchronous flush.
+- **Hard-delete recovery and vector maintenance**: Hard deletes persist across restart, remove knowledge-graph associations, and remove their HNSW labels; updates replace stale hot-tier vectors.
+- **Conversational entity recall**: Three-character proper nouns such as `Max` now seed knowledge-graph retrieval, restoring ConvoMem correction recall to `1.000`.
+
 ## [1.8.1] - 2026-07-26
 ### Fixed
 - **FileLock Re-entrancy**: Fixed `FileLock.acquire()` to handle current-process re-entry when `existing_pid == os.getpid()`, preventing false-positive "Database is locked by another process" exceptions.
