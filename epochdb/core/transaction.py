@@ -111,6 +111,10 @@ class FileLock:
                 # Unreadable lock file → treat as stale.
                 existing_pid = None
 
+            if existing_pid == pid:
+                # Lock is already held by current process
+                return
+
             if existing_pid and _pid_is_alive(existing_pid):
                 raise RuntimeError(
                     f"Database is locked by another process (PID {existing_pid}): "

@@ -6,6 +6,12 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.8.1] - 2026-07-26
+### Fixed
+- **FileLock Re-entrancy**: Fixed `FileLock.acquire()` to handle current-process re-entry when `existing_pid == os.getpid()`, preventing false-positive "Database is locked by another process" exceptions.
+### Changed
+- **Merge Auto-Extract With Provided Triples**: When `auto_extract=True`, `remember` / `remember_batch` now merge discovered entity co-occurrence triples with any caller-supplied structural triples instead of skipping extraction.
+
 ## [1.8.0] - 2026-07-25
 ### Changed
 - **Pairwise Entity Relationship Triples**: Updated `LocalFactExtractor` and fallback memory entity extraction to generate pairwise co-occurrence relationship triples `(entity1, "co_occurs_with", entity2)` between distinct entities, eliminating isolated single-entity self-loops (`(entity, "mentions", entity)`).
