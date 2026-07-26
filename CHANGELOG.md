@@ -6,6 +6,14 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.8.3] - 2026-07-26
+### Fixed
+- **Checkpoint WAL data loss**: Checkpoints now append epoch-scoped durability markers instead of truncating the entire WAL, preserving writes that arrive while an asynchronous flush is running.
+- **Hard-delete recovery and HNSW cleanup**: DELETE records are replayed as durable tombstones; hard deletes remove hot-tier mappings, mark HNSW labels deleted, and remove knowledge-graph associations.
+- **Stale vector updates**: Updating an existing hot memory now replaces its HNSW vector, so semantic queries reflect the updated embedding.
+### Added
+- Regression coverage for checkpoint recovery, hard-delete recovery, and hot-tier vector replacement.
+
 ## [1.8.2] - 2026-07-26
 ### Fixed
 - **Predicate pollution in LocalFactExtractor**: Entity co-occurrence triples no longer treat known predicates (e.g. `document_type`, `part_of`) as graph nodes when `extract_entities` Pass-2 matches them in text.
