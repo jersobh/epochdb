@@ -33,7 +33,7 @@ class Memory:
 def _build_pairwise_triples(extracted: list) -> list:
     seen = set()
     entities = []
-    for e in extracted:
+    for e in extracted or []:
         s = str(e)
         if s and s not in seen:
             seen.add(s)
@@ -48,6 +48,41 @@ def _build_pairwise_triples(extracted: list) -> list:
     elif len(entities) == 1:
         return [(entities[0], "mentions", entities[0])]
     return []
+
+
+def _merge_triples(*groups) -> list:
+    """Deduplicate (subject, predicate, object) triples across groups."""
+    merged = []
+    seen = set()
+    for group in groups:
+        for t in group or []:
+            if isinstance(t, (list, tuple)) and len(t) >= 3:
+                key = (str(t[0]), str(t[1]), str(t[2]))
+            else:
+                continue
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(key)
+    return merged
+
+
+def _resolve_ingest_triples(engine, text: str, triples, metadata: dict) -> list:
+    """Combine caller-provided triples with auto-extracted entity links."""
+    provided = triples
+    if provided is None:
+        provided = (metadata or {}).get("triples")
+    provided = list(provided or [])
+
+    discovered = []
+    if getattr(engine, "auto_extract", False):
+        from epochdb.core.fact_extractor import FactExtractor
+        extractor = FactExtractor(engine, engine.extraction_model)
+        discovered = extractor.extract(text) or []
+    elif not provided:
+        discovered = _build_pairwise_triples(engine.extract_entities(text))
+
+    return _merge_triples(provided, discovered)
 
 
 class Entity(str):
@@ -153,16 +188,8 @@ class EpochDB(EngineEpochDB):
             else:
                 embedding = np.zeros(self.dim, dtype=np.float32)
 
-            if triples is None:
-                triples = metadata.get("triples")
-            
-            if not triples and self.auto_extract:
-                from epochdb.core.fact_extractor import FactExtractor
-                extractor = FactExtractor(self, self.extraction_model)
-                triples = extractor.extract(text)
-            elif not triples:
-                extracted = self.extract_entities(text)
-                triples = _build_pairwise_triples(extracted)
+            triples = _resolve_ingest_triples(self, text, triples, metadata)
+            metadata["triples"] = triples
 
             atom_id = self.add_memory(
                 payload=text,
@@ -205,14 +232,9 @@ class EpochDB(EngineEpochDB):
 
             batch_items = []
             for i, (text, metadata) in enumerate(zip(texts, metadatas)):
-                triples = metadata.get("triples") or []
-                if not triples and self.auto_extract:
-                    from epochdb.core.fact_extractor import FactExtractor
-                    extractor = FactExtractor(self, self.extraction_model)
-                    triples = extractor.extract(text)
-                elif not triples:
-                    extracted = self.extract_entities(text)
-                    triples = _build_pairwise_triples(extracted)
+                triples = _resolve_ingest_triples(self, text, None, metadata)
+                metadata = dict(metadata or {})
+                metadata["triples"] = triples
 
                 batch_items.append({
                     "payload": text,
