@@ -12,6 +12,18 @@ All notable changes to EpochDB will be documented in this file.
 - **Hard-delete recovery and vector maintenance**: Hard deletes persist across restart, remove knowledge-graph associations, and remove their HNSW labels; updates replace stale hot-tier vectors.
 - **Conversational entity recall**: Three-character proper nouns such as `Max` now seed knowledge-graph retrieval, restoring ConvoMem correction recall to `1.000`.
 
+## [1.8.3] - 2026-07-26
+### Fixed
+- **Checkpoint WAL data loss**: Checkpoints now append epoch-scoped durability markers instead of truncating the entire WAL, preserving writes that arrive while an asynchronous flush is running.
+- **Hard-delete recovery and HNSW cleanup**: DELETE records are replayed as durable tombstones; hard deletes remove hot-tier mappings, mark HNSW labels deleted, and remove knowledge-graph associations.
+- **Stale vector updates**: Updating an existing hot memory now replaces its HNSW vector, so semantic queries reflect the updated embedding.
+### Added
+- Regression coverage for checkpoint recovery, hard-delete recovery, and hot-tier vector replacement.
+
+## [1.8.2] - 2026-07-26
+### Fixed
+- **Predicate pollution in LocalFactExtractor**: Entity co-occurrence triples no longer treat known predicates (e.g. `document_type`, `part_of`) as graph nodes when `extract_entities` Pass-2 matches them in text.
+
 ## [1.8.1] - 2026-07-26
 ### Fixed
 - **FileLock Re-entrancy**: Fixed `FileLock.acquire()` to handle current-process re-entry when `existing_pid == os.getpid()`, preventing false-positive "Database is locked by another process" exceptions.
