@@ -248,6 +248,8 @@ class EpochDB(EngineEpochDB):
     def get(self, memory_id: str) -> Optional[Memory]:
         """Retrieve a specific memory by its ID."""
         with self._internal_lock:
+            if memory_id in self.deleted_atom_ids:
+                return None
             atom = self.hot_tier.atoms.get(memory_id)
             if not atom:
                 for epoch_id in self.cold_tier.get_all_epochs():
@@ -272,6 +274,7 @@ class EpochDB(EngineEpochDB):
                         atom.embedding = np.array(emb, dtype=np.float32)
                 if metadata is not None:
                     atom.metadata.update(metadata)
+                self.hot_tier.update_atom(atom)
                 self.wal.append("ADD", atom.to_dict())
             else:
                 old_atom = None
@@ -307,9 +310,10 @@ class EpochDB(EngineEpochDB):
         """Delete a memory from the store."""
         with self._internal_lock:
             if hard:
-                if memory_id in self.hot_tier.atoms:
-                    self.hot_tier.atoms.pop(memory_id)
-                self.wal.append("DELETE", {"id": memory_id})
+                self.hot_tier.remove_atom(memory_id)
+                self.wal.log_delete(memory_id)
+                self.deleted_atom_ids.add(memory_id)
+                self.kg_manager.remove_associations([memory_id])
             else:
                 self.update(memory_id, metadata={"_deleted": True})
 
@@ -350,6 +354,8 @@ class EpochDB(EngineEpochDB):
                     pass
             memories = []
             for atom in atoms:
+                if atom.id in self.deleted_atom_ids:
+                    continue
                 score = 0.0
                 if emb.any() and atom.embedding.any():
                     score = np.dot(atom.embedding, emb) / (
@@ -407,6 +413,8 @@ class EpochDB(EngineEpochDB):
 
             filtered = []
             for a in atoms:
+                if a.id in self.deleted_atom_ids:
+                    continue
                 if a.metadata.get("_deleted"):
                     continue
                 if start_ts and a.created_at < start_ts:
