@@ -39,6 +39,15 @@ def test_add_memory(test_db):
     assert len(test_db.hot_tier.atoms) == 1
 
 
+def test_extract_entities_includes_three_character_proper_nouns(test_db):
+    emb = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    test_db.add_memory(
+        "Max is a cat.", emb, triples=[("Max", "is_a", "cat")]
+    )
+
+    assert "Max" in test_db.extract_entities("What type of pet is Max?")
+
+
 def test_dimensionality_enforcement(test_db, storage_dir):
     test_db.close()
     # Should automatically adjust dim to the stored dimension (4) instead of raising ValueError
