@@ -6,6 +6,10 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.8.2] - 2026-07-26
+### Fixed
+- **Predicate pollution in LocalFactExtractor**: Entity co-occurrence triples no longer treat known predicates (e.g. `document_type`, `part_of`) as graph nodes when `extract_entities` Pass-2 matches them in text.
+
 ## [1.8.1] - 2026-07-26
 ### Fixed
 - **FileLock Re-entrancy**: Fixed `FileLock.acquire()` to handle current-process re-entry when `existing_pid == os.getpid()`, preventing false-positive "Database is locked by another process" exceptions.
