@@ -7,7 +7,7 @@ import numpy as np
 import hnswlib
 from typing import List, Optional, Dict, Any, Tuple
 from collections import OrderedDict
-from epochdb.core.atom import UnifiedMemoryAtom, PayloadType, ScalarPayload, SeriesPayload, SeriesPoint, ConstraintPayload
+from epochdb.core.atom import UnifiedMemoryAtom, PayloadType, MemoryType, ScalarPayload, SeriesPayload, SeriesPoint, ConstraintPayload
 from epochdb.core.units import UnitRegistry
 import logging
 import time
@@ -92,6 +92,10 @@ class ColdTier:
  
         # Metadata: stored as JSON strings
         metadatas_json = [json.dumps(a.metadata) for a in atoms]
+        memory_types = [
+            (a.memory_type.value if getattr(a, "memory_type", None) else "general")
+            for a in atoms
+        ]
 
         schema = pa.schema(
             [
@@ -118,6 +122,7 @@ class ColdTier:
                 ("series_window", pa.string()),
                 ("constraint_expr", pa.string()),
                 ("metadata", pa.string()),
+                ("memory_type", pa.string()),
             ]
         )
 
@@ -144,6 +149,7 @@ class ColdTier:
                 "series_window": [a.payload.window if a.payload_type == PayloadType.SERIES else None for a in atoms],
                 "constraint_expr": [json.dumps(a.payload.expression) if a.payload_type == PayloadType.CONSTRAINT else None for a in atoms],
                 "metadata": metadatas_json,
+                "memory_type": memory_types,
             },
             schema=schema,
         )
@@ -360,6 +366,16 @@ class ColdTier:
             except json.JSONDecodeError:
                 pass
 
+        # Restore memory_type (older parquet files omit the column)
+        mt_str = row.get("memory_type") or metadata.get("type") or "general"
+        # Skills stored as process_summary still count as skill
+        if mt_str in ("process_summary", "skill"):
+            mt_str = "skill"
+        try:
+            memory_type = MemoryType(mt_str)
+        except ValueError:
+            memory_type = MemoryType.GENERAL
+
         return UnifiedMemoryAtom(
             id=row["id"],
             payload=payload,
@@ -370,6 +386,7 @@ class ColdTier:
             access_count=row["access_count"],
             epoch_id=row["epoch_id"],
             metadata=metadata,
+            memory_type=memory_type,
         )
 
     def get_total_atoms(self) -> int:

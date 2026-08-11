@@ -173,6 +173,7 @@ class EpochDB(EngineEpochDB):
         triples: Optional[Any] = None,
         metadata: Optional[dict] = None,
         memory_type: Optional[str] = None,
+        atom_id: Optional[str] = None,
     ) -> str:
         """Primary write method to store memories."""
         if isinstance(triples, dict) and metadata is None:
@@ -195,6 +196,7 @@ class EpochDB(EngineEpochDB):
                 payload=text,
                 embedding=embedding,
                 triples=triples,
+                atom_id=atom_id,
                 metadata=metadata,
             )
             # Set memory_type on the atom if specified
@@ -204,6 +206,8 @@ class EpochDB(EngineEpochDB):
                     atom = self.hot_tier.atoms.get(atom_id)
                     if atom:
                         atom.memory_type = mt
+                        # Persist memory_type into WAL so cold-tier reloads keep it
+                        self.wal.append("ADD", atom.to_dict())
                 except ValueError:
                     pass
             return atom_id
@@ -485,6 +489,138 @@ class EpochDB(EngineEpochDB):
                 "entity_count": len(self.get_entities()),
             }
 
+    # ── EpochDB Native User Profile & Skill Engine Extensions ────────────────
+
+    def remember_user_profile(self, user_id: str, fact_text: str, metadata: Optional[dict] = None) -> str:
+        """Stores a long-term dialectic user profile preference or identity fact into EpochDB."""
+        meta = metadata.copy() if metadata else {}
+        meta["user_id"] = user_id
+        meta["is_profile_fact"] = True
+        return self.remember(text=fact_text, metadata=meta, memory_type="profile")
+
+    def get_user_profile(self, user_id: str) -> List[Memory]:
+        """Retrieves all stored dialectic user profile facts for a given user from EpochDB."""
+        return self.query(text=f"user profile {user_id}", k=20, filters={"user_id": user_id}, memory_type="profile")
+
+    def remember_skill(
+        self,
+        skill_name: str,
+        description: str,
+        steps: List[dict],
+        tool_schema: Optional[dict] = None,
+        metadata: Optional[dict] = None,
+        skill_id: Optional[str] = None,
+        decision_rules: Optional[List[str]] = None,
+        triples: Optional[Any] = None,
+    ) -> str:
+        """Stores a synthesized procedural skill into EpochDB (native memory storage, no .md files!)."""
+        meta = metadata.copy() if metadata else {}
+        meta["skill_name"] = skill_name
+        meta["title"] = meta.get("title") or skill_name
+        meta["description"] = description
+        meta["steps"] = steps
+        meta["decision_rules"] = list(decision_rules or meta.get("decision_rules") or [])
+        meta["tool_schema"] = tool_schema or meta.get("tool_schema") or {}
+        meta["type"] = "skill"
+        if skill_id:
+            meta["process_id"] = skill_id
+            meta["skill_id"] = skill_id
+        if "created_at" not in meta:
+            meta["created_at"] = datetime.datetime.utcnow().timestamp()
+
+        step_bits = []
+        for i, s in enumerate(steps or []):
+            num = s.get("step_num", i + 1)
+            action = s.get("action", "")
+            details = s.get("details", "")
+            bit = f"Step {num}: {action}"
+            if details:
+                bit += f" — {details}"
+            step_bits.append(bit)
+
+        text_payload = f"SKILL [{skill_name}]: {description}\nSteps: " + "; ".join(step_bits)
+        if meta["decision_rules"]:
+            text_payload += "\nRules: " + "; ".join(meta["decision_rules"])
+
+        skill_triples = triples
+        if skill_triples is None:
+            skill_triples = [(skill_name, "is_skill", skill_id or skill_name)]
+            for i, s in enumerate(steps or []):
+                num = s.get("step_num", i + 1)
+                action = (s.get("action") or "").replace('"', "").replace("'", "")
+                if action:
+                    skill_triples.append((skill_id or skill_name, f"has_step_{num}", action))
+
+        return self.remember(
+            text=text_payload,
+            triples=skill_triples,
+            metadata=meta,
+            memory_type="skill",
+            atom_id=skill_id,
+        )
+
+    def get_skill(self, skill_name: str) -> Optional[Memory]:
+        """Retrieves a specific procedural skill by name (or skill_id) from EpochDB."""
+        needle = (skill_name or "").strip().lower()
+        if not needle:
+            return None
+        for mem in self.list_skills():
+            meta = mem.metadata or {}
+            candidates = [
+                meta.get("skill_name"),
+                meta.get("title"),
+                meta.get("skill_id"),
+                meta.get("process_id"),
+                mem.id,
+            ]
+            if any(str(c).strip().lower() == needle for c in candidates if c):
+                return mem
+        # Semantic fallback
+        skills = self.query(text=skill_name, k=5, filters={"skill_name": skill_name}, memory_type="skill")
+        return skills[0] if skills else None
+
+    def list_skills(self) -> List[Memory]:
+        """Lists all synthesized procedural skills stored in EpochDB."""
+        skills = []
+        seen = set()
+        for mem in self.get_timeline():
+            meta = mem.metadata or {}
+            is_skill = (
+                mem.memory_type == "skill"
+                or meta.get("type") in ("skill", "process_summary")
+                or bool(meta.get("skill_name"))
+            )
+            if not is_skill or meta.get("_deleted"):
+                continue
+            if mem.id in seen:
+                continue
+            seen.add(mem.id)
+            skills.append(mem)
+        skills.sort(key=lambda m: m.created_at or 0, reverse=True)
+        return skills
+
+    def get_hot_summary_snapshot(self, user_id: Optional[str] = None) -> str:
+        """
+        Generates a concise hot summary snapshot combining active user profile facts and top skills
+        for instant zero-latency system prompt injection into LLMs.
+        """
+        lines = []
+        if user_id:
+            profiles = self.get_user_profile(user_id)
+            if profiles:
+                lines.append("## Dialectic User Profile (EpochDB)")
+                for p in profiles[:5]:
+                    lines.append(f"- {p.text}")
+        
+        skills = self.list_skills()
+        if skills:
+            lines.append("## Synthesized Agent Skills (EpochDB)")
+            for s in skills[:5]:
+                lines.append(f"- {s.metadata.get('skill_name', 'Skill')}: {s.text[:120]}")
+
+        return "\n".join(lines) if lines else "EpochDB Memory Active."
+
+
 
 class AsyncEpochDB:
     """Asynchronous wrapper for EpochDB public facade."""
@@ -571,13 +707,14 @@ class AsyncEpochDB:
         triples: Optional[Any] = None,
         metadata: Optional[dict] = None,
         memory_type: Optional[str] = None,
+        atom_id: Optional[str] = None,
     ) -> str:
         if isinstance(triples, dict) and metadata is None:
             metadata = triples
             triples = None
         import asyncio
         db = await self._get_db()
-        return await asyncio.to_thread(db.remember, text, triples, metadata, memory_type)
+        return await asyncio.to_thread(db.remember, text, triples, metadata, memory_type, atom_id)
 
     async def analyze(self, text: str) -> List[Tuple[str, str, str]]:
         import asyncio
@@ -648,6 +785,57 @@ class AsyncEpochDB:
         import asyncio
         db = await self._get_db()
         return await asyncio.to_thread(db.stats)
+
+    async def remember_user_profile(self, user_id: str, fact_text: str, metadata: Optional[dict] = None) -> str:
+        import asyncio
+        db = await self._get_db()
+        return await asyncio.to_thread(db.remember_user_profile, user_id, fact_text, metadata)
+
+    async def get_user_profile(self, user_id: str) -> List[Memory]:
+        import asyncio
+        db = await self._get_db()
+        return await asyncio.to_thread(db.get_user_profile, user_id)
+
+    async def remember_skill(
+        self,
+        skill_name: str,
+        description: str,
+        steps: List[dict],
+        tool_schema: Optional[dict] = None,
+        metadata: Optional[dict] = None,
+        skill_id: Optional[str] = None,
+        decision_rules: Optional[List[str]] = None,
+        triples: Optional[Any] = None,
+    ) -> str:
+        import asyncio
+        db = await self._get_db()
+        return await asyncio.to_thread(
+            db.remember_skill,
+            skill_name,
+            description,
+            steps,
+            tool_schema,
+            metadata,
+            skill_id,
+            decision_rules,
+            triples,
+        )
+
+    async def get_skill(self, skill_name: str) -> Optional[Memory]:
+        import asyncio
+        db = await self._get_db()
+        return await asyncio.to_thread(db.get_skill, skill_name)
+
+    async def list_skills(self) -> List[Memory]:
+        import asyncio
+        db = await self._get_db()
+        return await asyncio.to_thread(db.list_skills)
+
+    async def get_hot_summary_snapshot(self, user_id: Optional[str] = None) -> str:
+        import asyncio
+        db = await self._get_db()
+        return await asyncio.to_thread(db.get_hot_summary_snapshot, user_id)
+
 
     async def add_memory(self, payload: Any, embedding: np.ndarray, triples: Optional[List[tuple]] = None, atom_id: Optional[str] = None) -> str:
         import asyncio
