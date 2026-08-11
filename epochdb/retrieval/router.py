@@ -85,7 +85,7 @@ class AdaptiveRouter:
             try:
                 from google import genai
                 client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1beta'})
-                model = self.model_id or "gemini-2.5-flash"
+                model = self.model_id or os.getenv("GEMINI_MODEL") or os.getenv("EPOCHDB_EXTRACTION_MODEL") or "gemini-2.5-flash"
                 
                 prompt = (
                     "Analyze the query and determine the most appropriate retrieval strategy.\n"

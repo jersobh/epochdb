@@ -52,23 +52,25 @@ def _build_pairwise_triples(extracted: list) -> list:
 
 def _merge_triples(*groups) -> list:
     """Deduplicate (subject, predicate, object) triples across groups."""
-    merged = []
-    seen = set()
-    for group in groups:
-        for t in group or []:
-            if isinstance(t, (list, tuple)) and len(t) >= 3:
-                key = (str(t[0]), str(t[1]), str(t[2]))
-            else:
-                continue
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(key)
-    return merged
+    from epochdb.core.extraction_scheduler import merge_triples
+    return merge_triples(*groups)
 
 
-def _resolve_ingest_triples(engine, text: str, triples, metadata: dict) -> list:
-    """Combine caller-provided triples with auto-extracted entity links."""
+def _resolve_ingest_triples(
+    engine,
+    text: str,
+    triples,
+    metadata: dict,
+    *,
+    defer_model: bool = False,
+) -> list:
+    """
+    Combine caller-provided triples with extracted entity links.
+
+    When ``defer_model=True`` (async extraction), only the fast local/heuristic
+    seed is computed so ``remember`` stays non-blocking; the configured model
+    runs later in a background worker.
+    """
     provided = triples
     if provided is None:
         provided = (metadata or {}).get("triples")
@@ -76,9 +78,11 @@ def _resolve_ingest_triples(engine, text: str, triples, metadata: dict) -> list:
 
     discovered = []
     if getattr(engine, "auto_extract", False):
-        from epochdb.core.fact_extractor import FactExtractor
-        extractor = FactExtractor(engine, engine.extraction_model)
-        discovered = extractor.extract(text) or []
+        extractor = engine._get_fact_extractor()
+        if defer_model:
+            discovered = extractor.extract_local(text) or []
+        else:
+            discovered = extractor.extract(text) or []
     elif not provided:
         discovered = _build_pairwise_triples(engine.extract_entities(text))
 
@@ -144,6 +148,8 @@ class EpochDB(EngineEpochDB):
         wal_use_uring: bool = True,
         auto_extract: bool = False,
         extraction_model: Optional[str] = None,
+        async_extract: bool = True,
+        extraction_workers: int = 1,
         **kwargs
     ):
         self.auto_flush = auto_flush
@@ -164,6 +170,8 @@ class EpochDB(EngineEpochDB):
             wal_use_uring=wal_use_uring,
             auto_extract=auto_extract,
             extraction_model=extraction_model,
+            async_extract=async_extract,
+            extraction_workers=extraction_workers,
             **kwargs
         )
 
@@ -175,12 +183,19 @@ class EpochDB(EngineEpochDB):
         memory_type: Optional[str] = None,
         atom_id: Optional[str] = None,
     ) -> str:
-        """Primary write method to store memories."""
+        """Primary write method to store memories.
+
+        With ``auto_extract=True`` and ``async_extract=True`` (default), returns
+        immediately after a fast local seed; the configured extraction model
+        enriches triples in the background.
+        """
         if isinstance(triples, dict) and metadata is None:
             metadata = triples
             triples = None
 
         metadata = metadata or {}
+        defer = bool(getattr(self, "auto_extract", False) and getattr(self, "async_extract", True))
+        schedule_async = False
         with self._internal_lock:
             if self._model_name:
                 embedder = self._get_embedder()
@@ -189,13 +204,19 @@ class EpochDB(EngineEpochDB):
             else:
                 embedding = np.zeros(self.dim, dtype=np.float32)
 
-            triples = _resolve_ingest_triples(self, text, triples, metadata)
-            metadata["triples"] = triples
+            resolved = _resolve_ingest_triples(self, text, triples, metadata, defer_model=defer)
+            metadata = dict(metadata)
+            metadata["triples"] = resolved
+            if defer:
+                metadata["extraction_status"] = "pending"
+                schedule_async = True
+            elif getattr(self, "auto_extract", False):
+                metadata["extraction_status"] = "done"
 
             atom_id = self.add_memory(
                 payload=text,
                 embedding=embedding,
-                triples=triples,
+                triples=resolved,
                 atom_id=atom_id,
                 metadata=metadata,
             )
@@ -210,10 +231,15 @@ class EpochDB(EngineEpochDB):
                         self.wal.append("ADD", atom.to_dict())
                 except ValueError:
                     pass
-            return atom_id
+
+        if schedule_async:
+            self._schedule_extraction(atom_id, text, resolved, metadata)
+        return atom_id
 
     def remember_batch(self, items: list) -> List[str]:
         """Store multiple memories at once."""
+        defer = bool(getattr(self, "auto_extract", False) and getattr(self, "async_extract", True))
+        scheduled: List[Tuple[str, str, list, dict]] = []
         with self._internal_lock:
             texts = []
             metadatas = []
@@ -235,10 +261,16 @@ class EpochDB(EngineEpochDB):
                 embs = [np.zeros(self.dim, dtype=np.float32) for _ in texts]
 
             batch_items = []
+            resolved_list = []
+            meta_list = []
             for i, (text, metadata) in enumerate(zip(texts, metadatas)):
-                triples = _resolve_ingest_triples(self, text, None, metadata)
+                triples = _resolve_ingest_triples(self, text, None, metadata, defer_model=defer)
                 metadata = dict(metadata or {})
                 metadata["triples"] = triples
+                if defer:
+                    metadata["extraction_status"] = "pending"
+                elif getattr(self, "auto_extract", False):
+                    metadata["extraction_status"] = "done"
 
                 batch_items.append({
                     "payload": text,
@@ -246,8 +278,26 @@ class EpochDB(EngineEpochDB):
                     "triples": triples,
                     "metadata": metadata,
                 })
+                resolved_list.append(triples)
+                meta_list.append(metadata)
 
-            return self.add_memory_batch(batch_items)
+            ids = self.add_memory_batch(batch_items)
+            if defer:
+                for i, aid in enumerate(ids):
+                    scheduled.append((aid, texts[i], resolved_list[i], meta_list[i]))
+
+        for aid, text, triples, meta in scheduled:
+            self._schedule_extraction(aid, text, triples, meta)
+        return ids
+
+    def set_extraction_model(self, model_id: Optional[str]) -> None:
+        """Configure the triple-extraction backend (``hf:…``, ``google:…``, ``openai:…``, ``local``)."""
+        super().set_extraction_model(model_id)
+        self.extraction_model = model_id
+
+    def analyze(self, text: str) -> List[Tuple[str, str, str]]:
+        """Extract triples from text without storing it (runs the configured model synchronously)."""
+        return self._get_fact_extractor().extract(text)
 
     def get(self, memory_id: str) -> Optional[Memory]:
         """Retrieve a specific memory by its ID."""
@@ -368,12 +418,6 @@ class EpochDB(EngineEpochDB):
                 if score >= min_score:
                     memories.append(Memory(atom))
             return memories
-
-    def analyze(self, text: str) -> List[Tuple[str, str, str]]:
-        """Extract triples from text without storing it."""
-        from epochdb.core.fact_extractor import FactExtractor
-        extractor = FactExtractor(self, self.extraction_model)
-        return extractor.extract(text)
 
     def multi_hop(self, text: str, hops: int = 2, k: int = 5, filters: Optional[dict] = None, context_window: int = 0) -> List[Memory]:
         """Multi-hop relational query."""
@@ -720,6 +764,21 @@ class AsyncEpochDB:
         import asyncio
         db = await self._get_db()
         return await asyncio.to_thread(db.analyze, text)
+
+    async def set_extraction_model(self, model_id: Optional[str]) -> None:
+        import asyncio
+        db = await self._get_db()
+        await asyncio.to_thread(db.set_extraction_model, model_id)
+
+    async def wait_for_extractions(self, timeout: Optional[float] = None) -> None:
+        import asyncio
+        db = await self._get_db()
+        await asyncio.to_thread(db.wait_for_extractions, timeout)
+
+    async def pending_extractions(self) -> int:
+        import asyncio
+        db = await self._get_db()
+        return await asyncio.to_thread(db.pending_extractions)
 
     async def remember_batch(self, items: list) -> List[str]:
         import asyncio
