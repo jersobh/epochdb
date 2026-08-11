@@ -18,6 +18,8 @@ class MemoryType(Enum):
     EPISODIC = "episodic"      # Conversational context that persists across sessions
     PROFILE = "profile"        # Long-term user facts and preferences
     WORKING = "working"        # Short-term context for the current session
+    SKILL = "skill"            # Synthesized procedural skills & executable tools
+
 
 @dataclass
 class Interval:
