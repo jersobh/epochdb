@@ -55,14 +55,19 @@ class EpochDB:
         wal_use_uring: bool = True,
         auto_extract: bool = False,
         extraction_model: Optional[str] = None,
+        async_extract: bool = True,
+        extraction_workers: int = 1,
     ):
         self.tenant = tenant
         self.namespace = namespace
         self.wal_sync_interval = wal_sync_interval
         self.wal_use_uring = wal_use_uring
         self.auto_extract = auto_extract
-        self.extraction_model = extraction_model
+        self.async_extract = bool(async_extract)
+        self.extraction_workers = max(1, int(extraction_workers or 1))
+        self.extraction_model = extraction_model or os.getenv("EPOCHDB_EXTRACTION_MODEL") or os.getenv("GEMINI_MODEL")
         self._fact_extractor = None
+        self._extraction_scheduler = None
 
         # Physical partition for tenant isolation
         if self.tenant:
@@ -673,32 +678,49 @@ class EpochDB:
         """
         Convenience method: embed `text` automatically and store it.
         Requires EpochDB to be initialized with a `model` name.
+
+        When ``auto_extract=True`` and ``async_extract=True`` (default), the
+        memory is stored immediately with seed triples and model extraction
+        runs in a background thread.
         """
         if isinstance(triples, dict) and metadata is None:
             metadata = triples
             triples = None
 
+        schedule_async = False
         with self._internal_lock:
             embedder = self._get_embedder()
             emb = embedder.encode(text, normalize_embeddings=True)
             if triples is None and metadata is not None:
                 triples = metadata.get("triples")
-            
-            if not triples and self.auto_extract:
-                from epochdb.core.fact_extractor import FactExtractor
-                if self._fact_extractor is None:
-                    self._fact_extractor = FactExtractor(self, self.extraction_model)
-                triples = self._fact_extractor.extract(text)
-            elif not triples:
-                triples = []
+
+            provided = list(triples or [])
+            discovered = []
+            if self.auto_extract:
+                extractor = self._get_fact_extractor()
+                if self.async_extract:
+                    discovered = extractor.extract_local(text)
+                    schedule_async = True
+                else:
+                    discovered = extractor.extract(text) or []
+            elif not provided:
+                discovered = []
+
+            from epochdb.core.extraction_scheduler import merge_triples
+            final_triples = merge_triples(provided, discovered)
+            meta = dict(metadata or {})
+            meta["triples"] = final_triples
+            if schedule_async:
+                meta["extraction_status"] = "pending"
+            elif self.auto_extract:
+                meta["extraction_status"] = "done"
 
             atom_id = self.add_memory(
                 text,
                 np.array(emb, dtype=np.float32),
-                triples,
-                metadata=metadata,
+                final_triples,
+                metadata=meta,
             )
-            # Set memory_type on the atom if specified
             if memory_type:
                 try:
                     mt = MemoryType(memory_type)
@@ -707,7 +729,10 @@ class EpochDB:
                         atom.memory_type = mt
                 except ValueError:
                     pass
-            return atom_id
+
+        if schedule_async:
+            self._schedule_extraction(atom_id, text, final_triples, meta)
+        return atom_id
 
     def remember_batch(self, texts: List[str], triples_list: List[List[tuple]] = None) -> List[str]:
         """
@@ -897,11 +922,80 @@ class EpochDB:
 
     def close(self):
         """Flush all pending state and release resources."""
+        try:
+            self.wait_for_extractions(timeout=120.0)
+        except Exception as e:
+            logger.warning(f"Timed out / error waiting for extractions on close: {e}")
+        if self._extraction_scheduler is not None:
+            self._extraction_scheduler.shutdown(wait=False)
+            self._extraction_scheduler = None
         self.flush()
         self.kg_manager.close()
         self._save_access_deltas()
         self.wal.close()
         self.lock.release()
+
+    def _get_fact_extractor(self):
+        """Lazy-load / refresh the configured fact extractor."""
+        if self._fact_extractor is None:
+            from epochdb.core.fact_extractor import FactExtractor
+            self._fact_extractor = FactExtractor(
+                self,
+                self.extraction_model,
+                model_cache_path=self._model_cache_path,
+            )
+        return self._fact_extractor
+
+    def set_extraction_model(self, model_id: Optional[str]) -> None:
+        """
+        Configure (or clear) the triple-extraction model.
+
+        Examples::
+
+            db.set_extraction_model("hf")                       # default REBEL
+            db.set_extraction_model("hf:small")                 # flan-t5-small
+            db.set_extraction_model("hf:Babelscape/rebel-large")
+            db.set_extraction_model("google:gemini-2.5-flash")
+            db.set_extraction_model("openai:gpt-4o-mini")
+            db.set_extraction_model("local")
+        """
+        self.extraction_model = model_id
+        self._fact_extractor = None
+
+    def analyze(self, text: str) -> List[tuple]:
+        """Extract triples from text without storing (synchronous, configured model)."""
+        return self._get_fact_extractor().extract(text)
+
+    def _get_extraction_scheduler(self):
+        if self._extraction_scheduler is None:
+            from epochdb.core.extraction_scheduler import ExtractionScheduler
+            self._extraction_scheduler = ExtractionScheduler(
+                self, max_workers=self.extraction_workers
+            )
+        return self._extraction_scheduler
+
+    def _schedule_extraction(
+        self,
+        atom_id: str,
+        text: str,
+        seed_triples: Optional[List[tuple]] = None,
+        metadata: Optional[dict] = None,
+    ):
+        if not self.auto_extract or not self.async_extract:
+            return
+        self._get_extraction_scheduler().submit(atom_id, text, seed_triples, metadata)
+
+    def wait_for_extractions(self, timeout: Optional[float] = None) -> None:
+        """Block until all background triple-extraction jobs finish."""
+        if self._extraction_scheduler is None:
+            return
+        self._extraction_scheduler.wait(timeout=timeout)
+
+    def pending_extractions(self) -> int:
+        """Number of in-flight background extraction jobs."""
+        if self._extraction_scheduler is None:
+            return 0
+        return self._extraction_scheduler.pending_count
 
     def __del__(self):
         # Last-resort cleanup only — prefer using the context manager or close().
@@ -942,6 +1036,22 @@ class AsyncEpochDB:
     ) -> str:
         import asyncio
         return await asyncio.to_thread(self._db.remember, text, triples, metadata, memory_type)
+
+    async def set_extraction_model(self, model_id: Optional[str]) -> None:
+        import asyncio
+        await asyncio.to_thread(self._db.set_extraction_model, model_id)
+
+    async def wait_for_extractions(self, timeout: Optional[float] = None) -> None:
+        import asyncio
+        await asyncio.to_thread(self._db.wait_for_extractions, timeout)
+
+    async def pending_extractions(self) -> int:
+        import asyncio
+        return await asyncio.to_thread(self._db.pending_extractions)
+
+    async def analyze(self, text: str):
+        import asyncio
+        return await asyncio.to_thread(self._db.analyze, text)
 
     async def recall_text(self, query: str, **kwargs) -> List[UnifiedMemoryAtom]:
         import asyncio

@@ -6,6 +6,20 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.8.6] - 2026-08-11
+### Added
+- **Configurable triple extraction models**: `extraction_model` / `set_extraction_model()` now route like embeddings — `local`, `google:…`, `openai:…`, or Hugging Face via `hf:…` / bare `org/name` (default `Babelscape/rebel-large`, lightweight `hf:small` → `google/flan-t5-small`).
+- **`epochdb[extraction]` extra**: optional `transformers` + `torch` for local HF open IE.
+- **Non-blocking async extraction**: with `auto_extract=True` (and `async_extract=True`, the default), `remember` / `remember_batch` return immediately after a fast local seed; model extraction merges triples into the atom + KG in a background worker. Use `wait_for_extractions()` / `pending_extractions()` to synchronize.
+- **`async_extract` / `extraction_workers`**: control background extraction and worker pool size.
+
+## [1.8.5] - 2026-08-11
+### Added
+- **`MemoryType.SKILL`**: procedural skill memories for agent tool / SOP storage.
+- **Skill APIs**: `remember_skill`, `get_skill`, `list_skills`, plus profile helpers and `get_hot_summary_snapshot`.
+- **Deterministic `atom_id` on `remember`**: stable IDs for skills, steps, and rules.
+- **Durable `memory_type`**: re-WAL after type assignment; Parquet cold tier now persists / restores `memory_type`.
+
 ## [1.8.4] - 2026-07-26
 ### Fixed
 - **Checkpoint durability**: WAL checkpoints now acknowledge only the atoms durably written for their epoch, preserving writes that arrive during an asynchronous flush.

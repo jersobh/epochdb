@@ -223,6 +223,33 @@ print(graph.nodes)  # ['VectorAI', 'user', 'CRISPR-X']
 print(graph.edges)  # List of edge dictionaries mapping sources and targets
 ```
 
+### 6. Configurable / async triple extraction
+```python
+from epochdb import EpochDB
+
+db = EpochDB(
+    storage_dir="./memory",
+    embedding_model="all-MiniLM-L6-v2",
+    auto_extract=True,                 # enrich KG on write
+    extraction_model="hf:small",       # or "hf", "google:gemini-2.5-flash", "openai:gpt-4o-mini", "local"
+    async_extract=True,                # non-blocking (default)
+)
+
+# remember() returns immediately; model extraction merges triples in the background
+mid = db.remember("Alice joined VectorAI as a research engineer.")
+
+# Optional: wait until background jobs finish
+db.wait_for_extractions()
+print(db.get(mid).triples)
+
+# Switch backends at runtime (same prefix style as embedding models)
+db.set_extraction_model("google:gemini-2.5-flash")
+db.set_extraction_model("hf:Babelscape/rebel-large")
+db.set_extraction_model("local")
+```
+
+Install local HF extraction with: `pip install epochdb[extraction]`
+
 ---
 
 ## Client-Server Architecture

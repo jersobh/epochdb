@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "epochdb"
-version = "1.8.5"
+version = "1.8.6"
 description = "An agentic memory engine designed for lossless, tiered verbatim storage and multi-hop retrieval."
 readme = "README.md"
 license = "MIT"
@@ -40,6 +40,9 @@ google = ["google-genai (>=2.8.0,<3.0.0)"]
 # Auto-embedding convenience (remember / recall_text).
 embeddings = ["sentence-transformers"]
 
+# Local Hugging Face triple extraction (REBEL / T5 / …).
+extraction = ["transformers>=4.36.0", "torch"]
+
 # Native LangGraph checkpointer.
 langgraph = ["langgraph"]
 
@@ -50,10 +53,28 @@ mcp = ["mcp[cli]>=1.0.0"]
 duckdb = ["duckdb>=1.0.0"]
 
 # Install everything (recommended for most agent use-cases).
-all = ["sentence-transformers", "langgraph", "google-genai (>=2.8.0,<3.0.0)", "mcp[cli]>=1.0.0", "duckdb>=1.0.0"]
+all = [
+    "sentence-transformers",
+    "langgraph",
+    "google-genai (>=2.8.0,<3.0.0)",
+    "mcp[cli]>=1.0.0",
+    "duckdb>=1.0.0",
+    "transformers>=4.36.0",
+    "torch",
+]
 
 # Development tools.
-dev = ["pytest", "pytest-cov", "sentence-transformers", "langgraph", "google-genai (>=2.8.0,<3.0.0)", "mcp[cli]>=1.0.0", "duckdb>=1.0.0"]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "sentence-transformers",
+    "langgraph",
+    "google-genai (>=2.8.0,<3.0.0)",
+    "mcp[cli]>=1.0.0",
+    "duckdb>=1.0.0",
+    "transformers>=4.36.0",
+    "torch",
+]
 
 [project.scripts]
 epochdb-mcp = "epochdb.mcp_server:main"
