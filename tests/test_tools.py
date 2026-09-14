@@ -35,7 +35,7 @@ async def async_db():
 
 def test_sync_tools_execution(sync_db):
     tools = get_epochdb_tools(sync_db)
-    assert len(tools) == 7
+    assert len(tools) == 8
     
     tool_map = {t.name: t for t in tools}
     assert "epochdb_remember" in tool_map
@@ -45,6 +45,7 @@ def test_sync_tools_execution(sync_db):
     assert "epochdb_entity_graph" in tool_map
     assert "epochdb_update" in tool_map
     assert "epochdb_delete" in tool_map
+    assert "epochdb_analyze" in tool_map
 
     remember_tool = tool_map["epochdb_remember"]
     query_tool = tool_map["epochdb_query"]
@@ -52,6 +53,7 @@ def test_sync_tools_execution(sync_db):
     delete_tool = tool_map["epochdb_delete"]
     timeline_tool = tool_map["epochdb_get_timeline"]
     graph_tool = tool_map["epochdb_entity_graph"]
+    analyze_tool = tool_map["epochdb_analyze"]
 
     # 1. Test remember
     mem_id = remember_tool.invoke({"text": "BMW has a headquarters in Munich.", "metadata": {"triples": [("BMW", "headquartered_in", "Munich")]}})
@@ -77,7 +79,11 @@ def test_sync_tools_execution(sync_db):
     assert "BMW" in graph["nodes"]
     assert "Munich" in graph["nodes"]
 
-    # 5. Test update
+    # 5. Test analyze
+    triples = analyze_tool.invoke({"text": "BMW is located in Munich"})
+    assert isinstance(triples, list)
+
+    # 6. Test update
     update_res = update_tool.invoke({"memory_id": mem_id, "text": "BMW is headquartered in Munich, Germany."})
     assert "updated successfully" in update_res
 
@@ -85,7 +91,7 @@ def test_sync_tools_execution(sync_db):
     results2 = query_tool.invoke({"query": "Germany", "k": 1})
     assert "Germany" in results2[0]["text"]
 
-    # 6. Test delete (soft)
+    # 7. Test delete (soft)
     delete_res = delete_tool.invoke({"memory_id": mem_id, "hard": False})
     assert "deleted successfully" in delete_res
 

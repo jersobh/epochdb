@@ -1,4 +1,5 @@
 import uuid
+import time
 import numpy as np
 import logging
 import datetime
@@ -150,10 +151,13 @@ class EpochDB(EngineEpochDB):
         extraction_model: Optional[str] = None,
         async_extract: bool = True,
         extraction_workers: int = 1,
+        validators: Optional[List[Any]] = None,
         **kwargs
     ):
         self.auto_flush = auto_flush
         self.extraction_model = extraction_model
+        # Opt-in symbolic validators for two-phase propose(); empty = zero overhead.
+        self.validators: List[Any] = list(validators) if validators else []
         if "model" in kwargs:
             val = kwargs.pop("model")
             if embedding_model is None:
@@ -236,6 +240,86 @@ class EpochDB(EngineEpochDB):
             self._schedule_extraction(atom_id, text, resolved, metadata)
         return atom_id
 
+    def propose(
+        self,
+        text: str,
+        metadata: Optional[dict] = None,
+        triples: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """
+        Two-phase state commit: stage → symbolic validate → atomic commit.
+
+        Unlike ``remember()``, writes are held in the Hot Tier staging area until
+        all configured :class:`~epochdb.validation.SymbolicValidator` instances
+        approve. With no validators configured, validation is skipped entirely
+        (opt-in middleware; preserves sub-millisecond ingest latency).
+
+        Returns
+        -------
+        dict
+            ``{"status": "APPROVED", "memory_id": ...}`` on success, or
+            ``{"status": "REJECTED", "error": ...}`` when a validator fails.
+        """
+        from epochdb.validation.symbolic import ValidationStatus
+
+        if isinstance(triples, dict) and metadata is None:
+            metadata = triples
+            triples = None
+
+        metadata = dict(metadata or {})
+
+        with self._internal_lock:
+            memory_id = str(uuid.uuid4())
+
+            if self._model_name:
+                embedder = self._get_embedder()
+                emb = embedder.encode(text, normalize_embeddings=True)
+                embedding = np.array(emb, dtype=np.float32)
+            else:
+                embedding = np.zeros(self.dim, dtype=np.float32)
+
+            norm = np.linalg.norm(embedding)
+            if norm > 1e-10:
+                embedding = embedding / norm
+
+            resolved = _resolve_ingest_triples(
+                self, text, triples, metadata, defer_model=False
+            )
+            metadata["triples"] = resolved
+
+            self.hot_tier.stage_memory(
+                memory_id=memory_id,
+                text=text,
+                metadata=metadata,
+                embedding=embedding,
+                triples=resolved,
+                epoch_id=self.current_epoch_id,
+                namespace=self.namespace,
+            )
+
+            # Opt-in: skip the validation loop when no validators are configured.
+            validators = self.validators
+            if validators:
+                kg_snapshot = self.get_kg_snapshot()
+                for validator in validators:
+                    result = validator.verify(text, metadata, kg_snapshot)
+                    if result.status == ValidationStatus.REJECTED:
+                        self.hot_tier.discard_staged_memory(memory_id)
+                        return {
+                            "status": "REJECTED",
+                            "error": result.reason or "Validation failed",
+                        }
+
+            committed = self.commit_staged_memory(memory_id)
+            if committed is None:
+                self.hot_tier.discard_staged_memory(memory_id)
+                return {
+                    "status": "REJECTED",
+                    "error": "Staged memory missing at commit time",
+                }
+
+            return {"status": "APPROVED", "memory_id": committed}
+
     def remember_batch(self, items: list) -> List[str]:
         """Store multiple memories at once."""
         defer = bool(getattr(self, "auto_extract", False) and getattr(self, "async_extract", True))
@@ -304,16 +388,29 @@ class EpochDB(EngineEpochDB):
         with self._internal_lock:
             if memory_id in self.deleted_atom_ids:
                 return None
+
             atom = self.hot_tier.atoms.get(memory_id)
-            if not atom:
-                for epoch_id in self.cold_tier.get_all_epochs():
-                    atoms = self.cold_tier.load_atom_metadata(epoch_id, [memory_id])
-                    if atoms:
-                        atom = atoms[0]
-                        break
-            if atom and not atom.metadata.get("_deleted"):
+            if atom is not None:
+                if atom.metadata.get("_deleted"):
+                    return None
                 return Memory(atom)
-            return None
+
+            # Cold tier may hold multiple versions of the same id across epochs
+            # (e.g. original + soft-delete tombstone). Prefer the newest by
+            # created_at so soft-deletes and updates are not masked by older
+            # parquet rows when epoch iteration order is arbitrary.
+            candidates = []
+            for epoch_id in self.cold_tier.get_all_epochs():
+                atoms = self.cold_tier.load_atom_metadata(epoch_id, [memory_id])
+                if atoms:
+                    candidates.append(atoms[0])
+            if not candidates:
+                return None
+
+            newest = max(candidates, key=lambda a: a.created_at)
+            if newest.metadata.get("_deleted"):
+                return None
+            return Memory(newest)
 
     def update(self, memory_id: str, text: Optional[str] = None, metadata: Optional[dict] = None):
         """Update a memory's text or metadata."""
@@ -328,6 +425,10 @@ class EpochDB(EngineEpochDB):
                         atom.embedding = np.array(emb, dtype=np.float32)
                 if metadata is not None:
                     atom.metadata.update(metadata)
+                # Ensure cold-tier multi-version lookups see this as newest.
+                ts = max(time.time(), self._last_timestamp + 0.000001)
+                self._last_timestamp = ts
+                atom.created_at = ts
                 self.hot_tier.update_atom(atom)
                 self.wal.append("ADD", atom.to_dict())
             else:
@@ -759,6 +860,19 @@ class AsyncEpochDB:
         import asyncio
         db = await self._get_db()
         return await asyncio.to_thread(db.remember, text, triples, metadata, memory_type, atom_id)
+
+    async def propose(
+        self,
+        text: str,
+        metadata: Optional[dict] = None,
+        triples: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        if isinstance(triples, dict) and metadata is None:
+            metadata = triples
+            triples = None
+        import asyncio
+        db = await self._get_db()
+        return await asyncio.to_thread(db.propose, text, metadata, triples)
 
     async def analyze(self, text: str) -> List[Tuple[str, str, str]]:
         import asyncio

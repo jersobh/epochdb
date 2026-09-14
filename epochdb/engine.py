@@ -288,6 +288,49 @@ class EpochDB:
             self._check_epoch_expiry()
             return atom.id
 
+    def get_kg_snapshot(self) -> Dict[str, Any]:
+        """
+        Lightweight, read-oriented view of the active Knowledge Graph.
+
+        Avoids deep-copying association tables. Entity names are fetched once;
+        ``predicates`` and ``hot_atom_ids`` are shallow / view-based references
+        suitable for symbolic validators in the propose() hot path.
+        """
+        return {
+            "entities": self.kg_manager.get_all_entities(),
+            "predicates": frozenset(self.predicates),
+            "epoch_id": self.current_epoch_id,
+            # Shallow id tuples freeze the view at snapshot time (no KG deep-copy).
+            "hot_atom_ids": tuple(self.hot_tier.atoms.keys()),
+            "pending_ids": tuple(self.hot_tier.staging.keys()),
+        }
+
+    def commit_staged_memory(self, memory_id: str) -> Optional[str]:
+        """
+        Atomically commit a staged memory into WAL + Hot Tier HNSW, then
+        update the active Knowledge Graph associations.
+        """
+        with self._internal_lock:
+            staged = self.hot_tier.get_staged_memory(memory_id)
+            if staged is None:
+                return None
+
+            triples = list(staged.triples)
+            committed = self.hot_tier.commit_staged_memory(memory_id, wal=self.wal)
+            if committed is None:
+                return None
+
+            associations = []
+            for subj, pred, obj in triples:
+                associations.append((str(subj), committed, self.current_epoch_id))
+                associations.append((str(obj), committed, self.current_epoch_id))
+                self.predicates.add(pred)
+
+            self.kg_manager.add_associations_batch(associations)
+            self.deleted_atom_ids.discard(committed)
+            self._check_epoch_expiry()
+            return committed
+
     def replace_memory(
         self,
         atom_id: str,
@@ -330,6 +373,11 @@ class EpochDB:
             if metadata is not None:
                 atom.metadata = metadata
             atom.epoch_id = self.current_epoch_id
+            # Bump created_at so cold-tier lookups can distinguish this version
+            # from earlier parquet rows that share the same atom id.
+            ts = max(time.time(), self._last_timestamp + 0.000001)
+            self._last_timestamp = ts
+            atom.created_at = ts
 
             self.hot_tier.update_atom(atom)
 
