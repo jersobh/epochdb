@@ -6,6 +6,21 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.8.7] - 2026-09-14
+### Added
+- **Neuro-Symbolic State Verification (LCAG)**: Opt-in two-phase write path via `db.propose(text, metadata)` — stage → symbolic validate → atomic commit (WAL + Hot Tier HNSW + Knowledge Graph), or reject and discard.
+- **`epochdb.validation`**: `SymbolicValidator` base class, `ValidationStatus` (`PENDING` / `APPROVED` / `REJECTED`), and `ValidationResult` for deterministic rule feedback (extensible toward SMT/Z3 or Pydantic validators).
+- **Hot Tier staging area**: `stage_memory`, `discard_staged_memory`, and `commit_staged_memory` hold PENDING intents without touching WAL, HNSW, or the active KG until approval.
+- **`EpochDB(validators=[...])`**: Pass a list of `SymbolicValidator` instances to enable LCAG; omit validators for zero-overhead ingest. `remember()` remains unchanged and always bypasses the validation loop.
+- **`get_kg_snapshot()`**: Lightweight read-oriented KG view (`entities`, `predicates`, `epoch_id`, `hot_atom_ids`, `pending_ids`) for validators.
+- **Async support**: `AsyncEpochDB.propose(...)` mirrors the sync facade.
+- Unit coverage in `tests/test_propose_validation.py` (approve/reject chains, KG integrity, staging isolation, async).
+- **Example**: `examples/example_neuro_symbolic.py` walkthrough of LCAG propose / reject rules.
+### Fixed
+- **Soft-delete after checkpoint**: `get()` now selects the newest cold-tier version of an atom (by `created_at`) so soft-delete tombstones are not masked by older parquet rows when epoch order is arbitrary.
+- **Versioned updates**: `update()` / `replace_memory()` bump `created_at` so multi-epoch cold lookups resolve to the latest write.
+- **`epochdb_analyze` tool typing**: Import `Tuple` in `epochdb.core.tools` so LangChain tool registration no longer raises `NameError`.
+
 ## [1.8.6] - 2026-08-11
 ### Added
 - **Configurable triple extraction models**: `extraction_model` / `set_extraction_model()` now route like embeddings — `local`, `google:…`, `openai:…`, or Hugging Face via `hf:…` / bare `org/name` (default `Babelscape/rebel-large`, lightweight `hf:small` → `google/flan-t5-small`).

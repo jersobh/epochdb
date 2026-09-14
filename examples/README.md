@@ -22,6 +22,7 @@ EpochDB is fully functional **offline** and does not require external API keys. 
 - **[demo.py](demo.py)**: Showcases basic memory storage, retrieval, and updating.
 - **[example_advanced.py](example_advanced.py)**: Explores state-aware supersession, discrete topic locking, and memory timeline queries.
 - **[quantitative_demo.py](quantitative_demo.py)**: Demonstrates quantitative indexing, scalar range queries, interval trees, and Z3 constraint checks.
+- **[example_neuro_symbolic.py](example_neuro_symbolic.py)**: Personal-assistant story (Maya’s workplace, allergies, expenses) showing `propose()` approve/reject rules vs `remember()`. Offline.
 
 ### 2. Integration with Agent Frameworks
 - **[example_langchain.py](example_langchain.py)**: Uses EpochDB as a long-term vector store and KG memory inside a LangChain agent.

@@ -1,8 +1,10 @@
 import hnswlib
 import numpy as np
 import logging
-from typing import Dict, List, Optional
-from epochdb.core.atom import UnifiedMemoryAtom, PayloadType
+import time
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
+from epochdb.core.atom import UnifiedMemoryAtom
 from epochdb.retrieval.quantitative_index import QuantitativeIndexManager
 
 logger = logging.getLogger(__name__)
@@ -11,11 +13,30 @@ logger = logging.getLogger(__name__)
 _RESIZE_THRESHOLD = 0.90
 
 
+@dataclass
+class StagedMemory:
+    """Transient intent held in the staging pool prior to symbolic commit."""
+
+    memory_id: str
+    text: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    embedding: Optional[np.ndarray] = None
+    triples: List[Tuple[Any, ...]] = field(default_factory=list)
+    status: str = "PENDING"
+    created_at: float = field(default_factory=time.time)
+    epoch_id: Optional[str] = None
+    namespace: Optional[str] = None
+
+
 class HotTier:
     """
     L1 Working Memory. Resides in RAM.
     Houses the Active Partition and HNSW vector index.
     Auto-resizes the HNSW index as capacity approaches the limit.
+
+    Also maintains a transient Staging Area for two-phase neuro-symbolic
+    commits: intents are registered as PENDING without touching HNSW/WAL/KG
+    until ``commit_staged_memory`` promotes them.
     """
 
     def __init__(self, dim: int, max_elements: int = 10_000, storage_dir: Optional[str] = None):
@@ -32,6 +53,9 @@ class HotTier:
 
         # Atom storage: id → UnifiedMemoryAtom
         self.atoms: Dict[str, UnifiedMemoryAtom] = {}
+
+        # Staging pool: memory_id → StagedMemory (PENDING intents only)
+        self.staging: Dict[str, StagedMemory] = {}
 
         # Map string UUID to integer label for hnswlib (which requires int IDs).
         self.uuid_to_int: Dict[str, int] = {}
@@ -79,6 +103,89 @@ class HotTier:
 
         # Index quantitative data.
         self.quant_index.index_atom(atom)
+
+    # -------------------------------------------------------------------------
+    # Staging Area (two-phase neuro-symbolic commit)
+    # -------------------------------------------------------------------------
+
+    def stage_memory(
+        self,
+        memory_id: str,
+        text: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        embedding: Optional[np.ndarray] = None,
+        triples: Optional[List[Tuple[Any, ...]]] = None,
+        epoch_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+    ) -> str:
+        """
+        Register a write intent as PENDING.
+
+        Does **not** write to the WAL, HNSW index, or active Knowledge Graph.
+        """
+        self.staging[memory_id] = StagedMemory(
+            memory_id=memory_id,
+            text=text,
+            metadata=dict(metadata or {}),
+            embedding=embedding,
+            triples=list(triples or []),
+            status="PENDING",
+            epoch_id=epoch_id,
+            namespace=namespace,
+        )
+        return memory_id
+
+    def get_staged_memory(self, memory_id: str) -> Optional[StagedMemory]:
+        """Return a staged intent without removing it."""
+        return self.staging.get(memory_id)
+
+    def discard_staged_memory(self, memory_id: str) -> bool:
+        """Abort a PENDING intent and remove it from the staging pool."""
+        return self.staging.pop(memory_id, None) is not None
+
+    def _atom_from_staged(self, staged: StagedMemory) -> UnifiedMemoryAtom:
+        emb = staged.embedding
+        if emb is None:
+            emb = np.zeros(self.dim, dtype=np.float32)
+        return UnifiedMemoryAtom(
+            id=staged.memory_id,
+            payload=staged.text,
+            embedding=emb,
+            triples=list(staged.triples),
+            epoch_id=staged.epoch_id or "",
+            created_at=staged.created_at,
+            namespace=staged.namespace,
+            metadata=dict(staged.metadata),
+        )
+
+    def commit_staged_memory(
+        self,
+        memory_id: str,
+        wal=None,
+    ) -> Optional[str]:
+        """
+        Promote a staged memory into the permanent Hot Tier (HNSW + atoms).
+
+        When ``wal`` is provided, the promote is wrapped in a
+        ``MultiIndexTransaction`` so WAL ADD/COMMIT and HNSW stay atomic.
+        Staged entries are never written to the Knowledge Graph here; the
+        caller (engine / facade) owns KG association updates.
+        """
+        staged = self.staging.pop(memory_id, None)
+        if staged is None:
+            return None
+
+        atom = self._atom_from_staged(staged)
+        staged.status = "APPROVED"
+
+        if wal is not None:
+            from epochdb.core.transaction import MultiIndexTransaction
+            with MultiIndexTransaction(wal, self) as tx:
+                tx.add(atom)
+        else:
+            self._add_atom(atom)
+
+        return atom.id
 
     def update_atom(self, atom: UnifiedMemoryAtom):
         """Replace an existing atom and its vector index entry."""
@@ -146,6 +253,7 @@ class HotTier:
     def clear(self):
         """Called upon Epoch Expiry after serialization."""
         self.atoms.clear()
+        self.staging.clear()
         self.uuid_to_int.clear()
         self.int_to_uuid.clear()
         self._next_int_id = 0

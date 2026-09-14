@@ -37,6 +37,7 @@ Flat vector databases retrieve text based on semantic similarity but struggle to
 - **Memory Forking & Lineage**: Supports logical branches (`db.fork`) for multi-agent collaboration and hypothetical reasoning without copying data.
 - **Pairwise Entity Graph Extraction**: Automatically generates co-occurrence relationship triples between extracted entities for connected graph visualizations.
 - **Rich Domain Objects**: Returns structured `Memory`, `Entity`, and `Graph` abstractions rather than raw database tuples.
+- **Neuro-Symbolic State Verification (LCAG)**: Opt-in two-phase `propose()` commits — stage → symbolic validate → atomic WAL/HNSW/KG write — so agents cannot mutate durable state without deterministic rule approval.
 
 ---
 
@@ -47,6 +48,11 @@ EpochDB uses a tiered hierarchy modeled after CPU caches to balance low latency 
 ```mermaid
 graph TD
     Agent([Agent / Application]) -->|remember / add_memory| Engine[EpochDB Engine]
+    Agent -->|propose intent| Stage[Staging Area PENDING]
+
+    Stage --> Val[Symbolic Validators]
+    Val -->|APPROVED| Engine
+    Val -->|REJECTED| Reject([Return error / discard])
 
     subgraph "Working Memory — RAM (Hot Tier)"
         Engine --> HNSW_H[HNSW Vector Index]
@@ -69,6 +75,7 @@ graph TD
     end
 ```
 
+> **Opt-in write path:** `db.remember()` remains the zero-overhead default. Pass `validators=[...]` and use `db.propose()` only when you need Logical Constraint-Augmented Generation (LCAG) before durable commit.
 ---
 
 ## Performance, Latency & Token Efficiency
@@ -250,6 +257,46 @@ db.set_extraction_model("local")
 
 Install local HF extraction with: `pip install epochdb[extraction]`
 
+### 7. Neuro-Symbolic State Verification (`propose`)
+
+Prevent probabilistic agent writes from mutating durable state until deterministic rules approve. Validation is **strictly opt-in** — omit `validators` and both `remember()` and `propose()` skip the verification loop.
+
+```python
+from epochdb import (
+    EpochDB,
+    SymbolicValidator,
+    ValidationResult,
+    ValidationStatus,
+)
+
+class RequireAdminRole(SymbolicValidator):
+    def verify(self, text, metadata, kg_snapshot):
+        if (metadata or {}).get("role") != "admin":
+            return ValidationResult(
+                ValidationStatus.REJECTED,
+                reason="role must be admin",
+            )
+        # kg_snapshot: entities, predicates, epoch_id, hot_atom_ids, pending_ids
+        return ValidationResult(ValidationStatus.APPROVED)
+
+with EpochDB(
+    storage_dir="./memory",
+    embedding_model=None,
+    validators=[RequireAdminRole()],
+) as db:
+    # Stage → validate → atomic WAL + HNSW + KG commit
+    ok = db.propose("Rotate production credentials", metadata={"role": "admin"})
+    # {"status": "APPROVED", "memory_id": "..."}
+
+    bad = db.propose("Rotate production credentials", metadata={"role": "guest"})
+    # {"status": "REJECTED", "error": "role must be admin"}
+
+    # Unchanged zero-overhead path (bypasses validators)
+    db.remember("Informational note that does not need LCAG")
+```
+
+Subclass `SymbolicValidator` for Python rules today; the same interface is intended for future Rust/Z3 SMT bridges.
+
 ---
 
 ## Client-Server Architecture
@@ -406,8 +453,9 @@ EpochDB supports multiple local and cloud embedding providers:
 The codebase is modularized to isolate engine subsystems:
 
 * [`core/`](epochdb/core): Core transactions, checkpointers, and base units.
-* [`storage/`](epochdb/storage): Hot Tier (RAM HNSW) and Cold Tier (Parquet storage).
+* [`storage/`](epochdb/storage): Hot Tier (RAM HNSW + staging area) and Cold Tier (Parquet storage).
 * [`entities/`](epochdb/entities): Global KG manager, cascade updates, and reflection rules.
+* [`validation/`](epochdb/validation): Symbolic validators and LCAG two-phase commit interfaces (`propose`).
 * [`retrieval/`](epochdb/retrieval): Multi-stage retrieval managers, quantitative indexes, and RRF fusion.
 * [`api/`](epochdb/api): Public facade APIs (`EpochDB` and `AsyncEpochDB`) and domain objects (`Memory`, `Entity`, `Graph`).
 
