@@ -6,7 +6,7 @@
 
 All notable changes to EpochDB will be documented in this file.
 
-## [1.8.7] - 2026-09-14
+## [1.9.0] - 2026-09-14
 ### Added
 - **Neuro-Symbolic State Verification (LCAG)**: Opt-in two-phase write path via `db.propose(text, metadata)` — stage → symbolic validate → atomic commit (WAL + Hot Tier HNSW + Knowledge Graph), or reject and discard.
 - **`epochdb.validation`**: `SymbolicValidator` base class, `ValidationStatus` (`PENDING` / `APPROVED` / `REJECTED`), and `ValidationResult` for deterministic rule feedback (extensible toward SMT/Z3 or Pydantic validators).
