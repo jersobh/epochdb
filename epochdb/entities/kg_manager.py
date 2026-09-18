@@ -3,7 +3,7 @@ import os
 import logging
 import time
 import threading
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -66,18 +66,70 @@ class KGManager:
             except Exception as e:
                 logger.error(f"Failed to batch add associations to SQLite KG: {e}")
 
-    def get_associations(self, entity: str) -> List[List[str]]:
-        """Retrieve all [atom_id, epoch_id] pairs for a given entity."""
+    def get_associations(self, entity: str, limit: Optional[int] = None) -> List[List[str]]:
+        """Retrieve [atom_id, epoch_id] pairs for a given entity.
+
+        When ``limit`` is set, returns the newest associations first (SQLite
+        ``rowid DESC``) so topic-lock seeding prefers current facts.
+        """
+        with self._lock:
+            try:
+                cursor = self._conn.cursor()
+                if limit is not None and int(limit) > 0:
+                    cursor.execute(
+                        "SELECT atom_id, epoch_id FROM kg_index "
+                        "WHERE entity = ? ORDER BY rowid DESC LIMIT ?",
+                        (entity, int(limit)),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT atom_id, epoch_id FROM kg_index WHERE entity = ?",
+                        (entity,)
+                    )
+                return [list(row) for row in cursor.fetchall()]
+            except Exception as e:
+                logger.error(f"Failed to query SQLite KG for entity '{entity}': {e}")
+                return []
+
+    def get_entity_degree(self, entity: str) -> int:
+        """Number of distinct atoms associated with ``entity``."""
         with self._lock:
             try:
                 cursor = self._conn.cursor()
                 cursor.execute(
-                    "SELECT atom_id, epoch_id FROM kg_index WHERE entity = ?",
-                    (entity,)
+                    "SELECT COUNT(DISTINCT atom_id) FROM kg_index WHERE entity = ?",
+                    (entity,),
                 )
-                return [list(row) for row in cursor.fetchall()]
+                row = cursor.fetchone()
+                return int(row[0] or 0) if row else 0
             except Exception as e:
-                logger.error(f"Failed to query SQLite KG for entity '{entity}': {e}")
+                logger.error(f"Failed to count degree for entity '{entity}': {e}")
+                return 0
+
+    def get_epochs_for_entities(self, entities: List[str]) -> List[str]:
+        """Distinct cold/hot epoch ids that mention any of ``entities``."""
+        if not entities:
+            return []
+        with self._lock:
+            try:
+                cursor = self._conn.cursor()
+                found = []
+                seen = set()
+                for i in range(0, len(entities), 500):
+                    chunk = entities[i:i + 500]
+                    placeholders = ",".join("?" for _ in chunk)
+                    cursor.execute(
+                        f"SELECT DISTINCT epoch_id FROM kg_index "
+                        f"WHERE entity IN ({placeholders})",
+                        chunk,
+                    )
+                    for (epoch_id,) in cursor.fetchall():
+                        if epoch_id and epoch_id not in seen:
+                            seen.add(epoch_id)
+                            found.append(epoch_id)
+                return found
+            except Exception as e:
+                logger.error(f"Failed to query epochs for entities: {e}")
                 return []
 
     def get_associations_batch(self, entities: List[str]) -> Dict[str, List[List[str]]]:

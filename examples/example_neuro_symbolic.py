@@ -171,7 +171,7 @@ We use {BD}propose(){R} so rules can approve or reject before anything is saved.
     db = EpochDB(
         storage_dir=storage,
         dim=32,
-        embedding_model=None,  # offline demo
+        embedding_model=None,
         validators=[
             OnlyTrustedWriters(),
             NoSecretsInMemory(),

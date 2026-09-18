@@ -34,10 +34,13 @@ graph TD
         HNSW_H -->|Async Flush| Parquet[(Parquet + F32 + Zstd)]
         Parquet <--> HNSW_C[HNSW Index per Epoch]
         HNSW_C <--> GEI[Global Entity Index]
+        HNSW_C --- Centroids[Epoch Centroids]
     end
 
     subgraph "Retrieval Pipeline"
-        HNSW_H & HNSW_C --> Pool[Candidate Pool]
+        HNSW_H --> Pool[Candidate Pool]
+        HNSW_C --> Probe[Epoch Probe]
+        Probe --> Pool
         Pool --> KG_Exp[KG Expansion & Topic Lock]
         KG_Exp --> RRF[4-Way RRF Fusion + Supersession]
         RRF --> Context[Agentic Context]
@@ -63,10 +66,16 @@ As epochs expire (or on demand), the Hot Tier is flushed to disk:
 EpochDB uses a multi-stage pipeline to ensure perfect recall, even in high-noise or multi-hop scenarios.
 
 ### Stage 1: Parallel Semantic Hook
-The engine simultaneously queries the Hot Tier HNSW and every Cold Tier epoch's HNSW index. It fetches a large candidate pool (`top_k * 10`) to provide enough surface area for subsequent rank fusion.
+The engine queries the Hot Tier HNSW and a **probe set** of Cold Tier epoch indexes (not every file on disk). The probe set is the union of:
+
+1. The newest epochs by parquet mtime (working-set / recency window).
+2. Epochs listed in the Global Entity Index for the query entities.
+3. The closest remaining epochs by cosine similarity to each epoch's stored centroid (mean embedding).
+
+A large candidate pool (`top_k * 10`) is still fetched from each *opened* index. Pass `cold_search_mode="exhaustive"` to restore the pre-1.10 broadcast over every epoch (used by comparison benchmarks). Stores smaller than `recency_epochs + centroid_probes` search every epoch automatically.
 
 ### Stage 2: Semantic Bootstrapping
-If no explicit `query_entities` are provided, the engine extracts entities from the top 2 semantic hits in the Hot Tier (provided they exceed a 0.5 similarity threshold). This allows vector-only queries to "bootstrap" their way into relational reasoning.
+If no explicit `query_entities` are provided, the engine extracts entities from the top semantic hits — first in the Hot Tier, then (after a flush) from probed Cold Tier hits — provided they exceed a 0.5 similarity threshold. This allows vector-only queries to "bootstrap" their way into relational reasoning.
 
 ### Stage 3: Global KG Seeding (Topic Lock)
 The engine pulls ALL atoms associated with the query's entities from the Global Entity Index. This ensures that even semantically distant facts (the "Needle") are captured if they belong to the correct topic.

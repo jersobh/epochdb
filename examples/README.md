@@ -43,5 +43,9 @@ EpochDB is fully functional **offline** and does not require external API keys. 
   ```
 
 ### 2. General Verification & Performance
-- **[sync_async_benchmark.py](sync_async_benchmark.py)**: Compares sync vs async client concurrency under load.
+- **[benchmark_tiered_retrieval.py](benchmark_tiered_retrieval.py)**: Compares pre-1.10 exhaustive cold-tier search with probed retrieval (recency + entity routing + epoch centroids). Reports latency, epochs opened, and needle recall. Offline, synthetic embeddings.
+
+  ```bash
+  python examples/benchmark_tiered_retrieval.py
+  ```
 - **[benchmark_token_efficiency_accuracy.py](benchmark_token_efficiency_accuracy.py)**: Verifies recall accuracy and inputs/outputs token savings in production agent loops.
