@@ -6,6 +6,14 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.10.0] - 2026-09-18
+### Added
+- **Probed cold-tier retrieval**: queries no longer broadcast to every historical HNSW index. The engine opens a probe set of epochs from (1) recency, (2) Global Entity Index routing, and (3) cosine neighbours of per-epoch embedding centroids.
+- **`cold_search_mode`**: `"probe"` (default) or `"exhaustive"` (pre-1.10 broadcast, kept for benchmarks and perfect-recall suites). Small archives fall back to exhaustive automatically when probing cannot save work.
+- **Tunables**: `recency_epochs` (default 6), `centroid_probes` (default 12), `topic_lock_fetch_cap` (default 512, newest GEI associations first).
+- **Cold bootstrap**: after a flush, vector-only queries can discover KG entities from probed cold hits, not only from the hot tier.
+- **Comparison suite**: `tests/test_tiered_retrieval_probe.py` and `examples/benchmark_tiered_retrieval.py` measure before (exhaustive) vs after (probe) latency and needle recall.
+
 ## [1.9.0] - 2026-09-14
 ### Added
 - **Neuro-Symbolic State Verification (LCAG)**: Opt-in two-phase write path via `db.propose(text, metadata)` — stage → symbolic validate → atomic commit (WAL + Hot Tier HNSW + Knowledge Graph), or reject and discard.

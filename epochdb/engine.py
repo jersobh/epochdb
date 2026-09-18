@@ -57,6 +57,10 @@ class EpochDB:
         extraction_model: Optional[str] = None,
         async_extract: bool = True,
         extraction_workers: int = 1,
+        cold_search_mode: str = "probe",
+        recency_epochs: int = 6,
+        centroid_probes: int = 12,
+        topic_lock_fetch_cap: int = 512,
     ):
         self.tenant = tenant
         self.namespace = namespace
@@ -135,6 +139,10 @@ class EpochDB:
 
         # --- Retrieval ---
         self.retriever = RetrievalManager(self.hot_tier, self.cold_tier, self.kg_manager)
+        self.retriever.cold_search_mode = cold_search_mode or "probe"
+        self.retriever.recency_epochs = int(recency_epochs)
+        self.retriever.centroid_probes = int(centroid_probes)
+        self.retriever.topic_lock_fetch_cap = int(topic_lock_fetch_cap)
 
         # --- Persistent Access Deltas (cold-tier saliency across restarts) ---
         self._access_deltas_file = os.path.join(self.storage_dir, "access_deltas.json")
@@ -480,6 +488,7 @@ class EpochDB:
         query_entities: List[str] = None,
         fork_id: Optional[str] = None,
         memory_type: Optional[str] = None,
+        cold_search_mode: Optional[str] = None,
     ) -> List[UnifiedMemoryAtom]:
         """Query memory using a dense embedding vector."""
         with self._internal_lock:
@@ -489,6 +498,7 @@ class EpochDB:
                 expand_hops=expand_hops,
                 query_entities=query_entities,
                 fork_id=fork_id,
+                cold_search_mode=cold_search_mode,
             )
             # Filter by memory_type if specified
             if memory_type:
@@ -827,6 +837,7 @@ class EpochDB:
         expand_hops: int = 1,
         query_entities: List[str] = None,
         memory_type: Optional[str] = None,
+        cold_search_mode: Optional[str] = None,
     ) -> List[UnifiedMemoryAtom]:
         """
         Convenience method: embed `query` automatically and recall memories.
@@ -848,6 +859,7 @@ class EpochDB:
                 expand_hops=expand_hops,
                 query_entities=query_entities,
                 memory_type=memory_type,
+                cold_search_mode=cold_search_mode,
             )
 
     # -------------------------------------------------------------------------
@@ -978,6 +990,7 @@ class EpochDB:
             self._extraction_scheduler.shutdown(wait=False)
             self._extraction_scheduler = None
         self.flush()
+        self.retriever.close()
         self.kg_manager.close()
         self._save_access_deltas()
         self.wal.close()
