@@ -33,7 +33,7 @@ Flat vector databases retrieve text based on semantic similarity but struggle to
 - **State-Aware Supersession**: Automatically identifies and filters out stale facts when they are updated.
 - **Adaptive Query Routing & Decomposition**: Dynamically routes incoming queries to optimal search engines (semantic, relational, temporal, or quantitative) or splits composite queries using LLMs (Gemini, OpenAI, Anthropic) or local offline rules.
 - **Contextualized Retrieval (Temporal neighbor expansion)**: Retrieves chronological context turns immediately surrounding matched memories.
-- **Tiered HNSW Hierarchy**: Sub-millisecond recall across working memory (L1 RAM) and historical archives (L2 Disk).
+- **Tiered HNSW Hierarchy**: Sub-millisecond recall across working memory (L1 RAM) and a probed subset of historical archives (L2 Disk) — recency, entity routing, and epoch centroids, with an exhaustive fallback.
 - **Memory Forking & Lineage**: Supports logical branches (`db.fork`) for multi-agent collaboration and hypothetical reasoning without copying data.
 - **Pairwise Entity Graph Extraction**: Automatically generates co-occurrence relationship triples between extracted entities for connected graph visualizations.
 - **Rich Domain Objects**: Returns structured `Memory`, `Entity`, and `Graph` abstractions rather than raw database tuples.
@@ -64,11 +64,13 @@ graph TD
         HNSW_H -->|Async Flush| Parquet[(Parquet + F32 + Zstd)]
         Parquet --- HNSW_C[HNSW Index per Epoch]
         HNSW_C --- GEI[Global Entity Index]
+        HNSW_C --- Centroids[Epoch Centroids]
     end
 
     subgraph "Retrieval Pipeline"
         HNSW_H --> Pool[Candidate Pool]
-        HNSW_C --> Pool
+        HNSW_C --> Probe[Epoch Probe: recency + GEI + centroids]
+        Probe --> Pool
         Pool --> KG_Exp[KG Expansion & Topic Lock]
         KG_Exp --> RRF[4-Way RRF Fusion + Supersession]
         RRF --> Context[Agentic Context]

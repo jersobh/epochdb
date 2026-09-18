@@ -1,10 +1,22 @@
-import numpy as np
-from typing import List, Dict, Set, Optional, Any, Tuple
-from epochdb.core.atom import UnifiedMemoryAtom, PayloadType, SeriesPoint
-from epochdb.core.units import UnitRegistry
-from epochdb.retrieval.quantitative_index import ScalarIndex
+import concurrent.futures
 import logging
 import re
+import threading
+from typing import List, Dict, Set, Optional, Any, Tuple, Callable
+
+import numpy as np
+
+from epochdb.core.atom import UnifiedMemoryAtom, PayloadType, SeriesPoint
+from epochdb.core.units import UnitRegistry
+from epochdb.retrieval.epoch_probe import (
+    DEFAULT_CENTROID_PROBES,
+    DEFAULT_COLD_SEARCH_MODE,
+    DEFAULT_RECENCY_EPOCHS,
+    DEFAULT_TOPIC_LOCK_FETCH_CAP,
+    EpochProbePlan,
+    plan_epoch_search,
+)
+from epochdb.retrieval.quantitative_index import ScalarIndex
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +35,116 @@ class RetrievalManager:
         self.kg_manager = kg_manager
         self.unit_registry = UnitRegistry()
 
+        self.cold_search_mode = DEFAULT_COLD_SEARCH_MODE
+        self.recency_epochs = DEFAULT_RECENCY_EPOCHS
+        self.centroid_probes = DEFAULT_CENTROID_PROBES
+        self.topic_lock_fetch_cap = DEFAULT_TOPIC_LOCK_FETCH_CAP
+        self.last_probe_plan: Optional[EpochProbePlan] = None
+        self._search_pool: Optional[concurrent.futures.ThreadPoolExecutor] = None
+        self._search_pool_lock = threading.Lock()
+
         # Track access-count increments for cold-tier atoms in memory.
         # These are applied on top of the stored access_count when an atom
         # is loaded from Parquet. Cleared on engine close (not persisted across
         # process restarts — acceptable since counts are a ranking signal only).
         self._access_deltas: Dict[str, int] = {}
+
+    def close(self) -> None:
+        pool = self._search_pool
+        self._search_pool = None
+        if pool is not None:
+            pool.shutdown(wait=False)
+
+    def _get_search_pool(self) -> concurrent.futures.ThreadPoolExecutor:
+        with self._search_pool_lock:
+            if self._search_pool is None:
+                self._search_pool = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=8,
+                    thread_name_prefix="epochdb-cold",
+                )
+            return self._search_pool
+
+    def plan_cold_search(
+        self,
+        query_emb: np.ndarray,
+        query_entities: Optional[Set[str]] = None,
+        cold_search_mode: Optional[str] = None,
+    ) -> EpochProbePlan:
+        """Public probe planner (also used by tests / benchmarks)."""
+        entity_epochs = []
+        if query_entities:
+            entity_epochs = self.kg_manager.get_epochs_for_entities(list(query_entities))
+        return plan_epoch_search(
+            self.cold_tier,
+            query_emb,
+            entity_epochs=entity_epochs,
+            mode=cold_search_mode or self.cold_search_mode,
+            recency_k=self.recency_epochs,
+            centroid_k=self.centroid_probes,
+        )
+
+    def _seed_entity_candidates(
+        self,
+        query_entities: Set[str],
+        query_emb: np.ndarray,
+        add_candidate: Callable[[UnifiedMemoryAtom, float], None],
+        candidates: Dict[str, tuple],
+    ) -> None:
+        fetch_cap = self.topic_lock_fetch_cap
+        limit = fetch_cap if fetch_cap and fetch_cap > 0 else None
+        for qe in query_entities:
+            associations = self.kg_manager.get_associations(qe, limit=limit)
+            if not associations:
+                continue
+            epoch_to_atom_ids: Dict[str, List[str]] = {}
+            for a_id, ep_id in associations:
+                if a_id not in candidates:
+                    epoch_to_atom_ids.setdefault(ep_id, []).append(a_id)
+
+            for ep_id, a_ids in epoch_to_atom_ids.items():
+                atoms = self.cold_tier.load_atom_metadata(ep_id, a_ids)
+                for a in atoms:
+                    sim = 0.0
+                    if query_emb.any() and a.embedding.any():
+                        sim = np.dot(a.embedding, query_emb) / (
+                            np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
+                        )
+                    add_candidate(a, float(sim) + 0.5)
+
+            for a_id, _ in associations:
+                if a_id in self.hot_tier.atoms and a_id not in candidates:
+                    a = self.hot_tier.atoms[a_id]
+                    sim = 0.0
+                    if query_emb.any() and a.embedding.any():
+                        sim = np.dot(a.embedding, query_emb) / (
+                            np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
+                        )
+                    add_candidate(a, float(sim) + 0.5)
+
+    def _bootstrap_entities_from_hits(
+        self,
+        hits: List[tuple],
+        query_emb: np.ndarray,
+        query_entities: Set[str],
+        min_score: float = 0.5,
+        max_hits: int = 2,
+    ) -> Set[str]:
+        """Add subject/object entities from the strongest semantic hits."""
+        added: Set[str] = set()
+        if query_entities:
+            return added
+        ranked = sorted(hits, key=lambda x: x[1], reverse=True)
+        for atom, score in ranked[:max_hits]:
+            if score <= min_score:
+                continue
+            for s, p, o in atom.triples:
+                if s not in query_entities:
+                    query_entities.add(s)
+                    added.add(s)
+                if o not in query_entities:
+                    query_entities.add(o)
+                    added.add(o)
+        return added
 
     def _fetch_atom_by_id(self, atom_id: str, epoch_id: str) -> UnifiedMemoryAtom:
         # Check Hot Tier first.
@@ -149,6 +266,7 @@ class RetrievalManager:
         fork_id: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
         context_window: int = 0,
+        cold_search_mode: Optional[str] = None,
     ) -> List[UnifiedMemoryAtom]:
         query_entities = set(query_entities) if query_entities else set()
         # Freeze the original query intent before graph expansion contaminates it.
@@ -172,6 +290,7 @@ class RetrievalManager:
         # --- 1. Semantic Hook: Hot Tier ---
         # We fetch a larger pool to allow RRF and Topic Locking to function.
         hot_hits = self.hot_tier.query_vector(query_emb, top_k=top_k * 10)
+        hot_scored = []
         for atom in hot_hits:
             if len(atom.embedding) == len(query_emb):
                 score = np.dot(atom.embedding, query_emb) / (
@@ -180,92 +299,55 @@ class RetrievalManager:
             else:
                 score = 0.0
             add_candidate(atom, float(score))
+            hot_scored.append((atom, float(score)))
 
-        # --- Semantic Bootstrapping ---
-        # If no query_entities provided, we 'bootstrap' them from the top semantic matches
-        # in the Hot Tier. This allows vector-only queries to still leverage the KG 
-        # locking mechanisms.
-        if not query_entities and hot_hits:
-            for atom in hot_hits[:2]:  # Use only high-confidence hits
-                score = np.dot(atom.embedding, query_emb) / (
-                    np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10
-                )
-                if score > 0.5:
-                    for s, p, o in atom.triples:
-                        query_entities.add(s)
-                        query_entities.add(o)
+        # --- Semantic Bootstrapping (hot, then later cold if still empty) ---
+        self._bootstrap_entities_from_hits(hot_scored, query_emb, query_entities)
 
         # --- 1a. Entity Hook: Global KG Seeding ---
-        # If query entities match Global KG entries, we pull them in as candidates 
-        # even if their semantic score was too low to make the initial pool.
-        for qe in query_entities:
-            associations = self.kg_manager.get_associations(qe)
-            if associations:
-                # Group neighbor atoms by epoch for optimized loading
-                epoch_to_atom_ids: Dict[str, List[str]] = {}
-                for a_id, ep_id in associations:
-                    if a_id not in candidates:
-                        if ep_id not in epoch_to_atom_ids:
-                            epoch_to_atom_ids[ep_id] = []
-                        epoch_to_atom_ids[ep_id].append(a_id)
-                
-                # Fetch from Cold Tier if needed
-                for ep_id, a_ids in epoch_to_atom_ids.items():
-                    atoms = self.cold_tier.load_atom_metadata(ep_id, a_ids)
-                    for a in atoms:
-                        sim = 0.0
-                        if query_emb.any() and a.embedding.any():
-                            sim = np.dot(a.embedding, query_emb) / (
-                                np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
-                            )
-                        # Entity match gets a baseline boost to ensure retrieval
-                        add_candidate(a, float(sim) + 0.5)
-                
-                # Also check Hot Tier
-                for a_id, _ in associations:
-                    if a_id in self.hot_tier.atoms and a_id not in candidates:
-                        a = self.hot_tier.atoms[a_id]
-                        sim = 0.0
-                        if query_emb.any() and a.embedding.any():
-                            sim = np.dot(a.embedding, query_emb) / (
-                                np.linalg.norm(a.embedding) * np.linalg.norm(query_emb) + 1e-10
-                            )
-                        add_candidate(a, float(sim) + 0.5)
+        if query_entities:
+            self._seed_entity_candidates(
+                query_entities, query_emb, add_candidate, candidates
+            )
 
-        # --- Keyword-based Entity Extraction (Auto-Expansion) ---
-        # If no explicit entities are passed, we scan the query embedding surface 
-        # (or payload keywords) for matches in the Global KG to boost Factor C.
-        if not query_entities:
-            # We don't have the raw query text here, but we can use the Global KG 
-            # keys as a candidate set for heuristic matching if the user passed 
-            # an unpopulated set. For now, we rely on the expansion set below.
-            pass
-
-        # --- 1b. Semantic Hook: Cold Tier (Parallel Indexed Search) ---
-        epochs = self.cold_tier.get_all_epochs()
+        # --- 1b. Semantic Hook: Cold Tier (probed epochs, not a full broadcast) ---
+        plan = self.plan_cold_search(
+            query_emb,
+            query_entities=query_entities,
+            cold_search_mode=cold_search_mode,
+        )
+        self.last_probe_plan = plan
+        epochs = plan.epochs
         if epochs:
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(epochs))) as executor:
-                # Launch all epoch searches in parallel
-                future_to_epoch = {
-                    executor.submit(self.cold_tier.search_epoch, epoch, query_emb, top_k * 10): epoch 
-                    for epoch in epochs
-                }
-                
-                for future in concurrent.futures.as_completed(future_to_epoch):
-                    try:
-                        cold_hits = future.result()
-                        for atom in cold_hits:
-                            if len(atom.embedding) != len(query_emb):
-                                continue
-                                
-                            sim = np.dot(atom.embedding, query_emb) / (
-                                np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10
-                            )
-                            atom.access_count += self._access_deltas.get(atom.id, 0)
-                            add_candidate(atom, float(sim))
-                    except Exception as e:
-                        logger.error(f"Search failed for epoch {future_to_epoch[future]}: {e}")
+            pool = self._get_search_pool()
+            future_to_epoch = {
+                pool.submit(self.cold_tier.search_epoch, epoch, query_emb, top_k * 10): epoch
+                for epoch in epochs
+            }
+            for future in concurrent.futures.as_completed(future_to_epoch):
+                try:
+                    cold_hits = future.result()
+                    for atom in cold_hits:
+                        if len(atom.embedding) != len(query_emb):
+                            continue
+                        sim = np.dot(atom.embedding, query_emb) / (
+                            np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10
+                        )
+                        atom.access_count += self._access_deltas.get(atom.id, 0)
+                        add_candidate(atom, float(sim))
+                except Exception as e:
+                    logger.error(f"Search failed for epoch {future_to_epoch[future]}: {e}")
+
+        # After a flush the hot tier is empty; bootstrap from probed cold hits
+        # and seed any newly discovered entities without re-scanning every epoch.
+        if not original_query_entities:
+            added = self._bootstrap_entities_from_hits(
+                list(candidates.values()), query_emb, query_entities
+            )
+            if added:
+                self._seed_entity_candidates(
+                    added, query_emb, add_candidate, candidates
+                )
 
         # --- 2. Relational Expansion via Global KG ---
         # This doubles as our Entity Extraction: if a candidate atom mentions an entity 
@@ -457,12 +539,19 @@ class RetrievalManager:
         quant_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
 
         # 3. Discrete Topic Lock (Consolidated Saliency)
+        degree_cache: Dict[str, int] = {}
+
+        def _entity_degree(entity: str) -> int:
+            if entity not in degree_cache:
+                degree_cache[entity] = self.kg_manager.get_entity_degree(entity)
+            return degree_cache[entity]
+
         def get_topic_boost(atom: UnifiedMemoryAtom) -> float:
             boost = 0.0
             # Use original_query_entities — NOT the expansion-contaminated query_entities
             for qe in original_query_entities:
                 qe_l = qe.lower()
-                is_broad = len(self.kg_manager.get_associations(qe)) > 10 # Increased threshold for 'broad'
+                is_broad = _entity_degree(qe) > 10
                 
                 for s, p, o in atom.triples:
                     p_l = p.lower()

@@ -24,7 +24,7 @@ class ColdTier:
     def __init__(
         self,
         storage_dir: str,
-        index_cache_size: int = 10,
+        index_cache_size: int = 32,
         compression: str = "ZSTD",
         compression_level: int = 3,
     ):
@@ -174,6 +174,7 @@ class ColdTier:
         # --- Persistent HNSW Index for this Epoch ---
         embeddings_f32 = np.array([a.embedding for a in atoms], dtype=np.float32)
         self._build_hnsw_index(epoch_id, embeddings_f32)
+        self._write_centroid(epoch_id, embeddings_f32)
 
     def _build_hnsw_index(self, epoch_id: str, embeddings: np.ndarray):
         """Builds and saves an hnswlib index for an epoch's embeddings."""
@@ -203,6 +204,69 @@ class ColdTier:
                 except OSError:
                     pass
             logger.error(f"Failed to build HNSW index for {epoch_id}: {e}")
+
+    def _centroid_path(self, epoch_id: str) -> str:
+        return os.path.join(self.storage_dir, f"{epoch_id}.centroid.npy")
+
+    def _write_centroid(self, epoch_id: str, embeddings: np.ndarray) -> None:
+        """Persist the L2-normalised mean embedding of an epoch for probe routing."""
+        if embeddings is None or getattr(embeddings, "size", 0) == 0:
+            return
+        try:
+            centroid = np.mean(np.asarray(embeddings, dtype=np.float32), axis=0)
+            norm = float(np.linalg.norm(centroid))
+            if norm > 1e-10:
+                centroid = centroid / norm
+            np.save(self._centroid_path(epoch_id), centroid.astype(np.float32))
+        except Exception as e:
+            logger.error(f"Failed to write centroid for {epoch_id}: {e}")
+
+    def get_centroid(self, epoch_id: str) -> Optional[np.ndarray]:
+        """Load or lazily backfill the epoch centroid used for cold-tier probing."""
+        path = self._centroid_path(epoch_id)
+        if os.path.exists(path):
+            try:
+                return np.load(path).astype(np.float32).reshape(-1)
+            except Exception as e:
+                logger.error(f"Failed to load centroid for {epoch_id}: {e}")
+        centroid = self._compute_centroid(epoch_id)
+        if centroid is not None:
+            try:
+                np.save(path, centroid)
+            except Exception as e:
+                logger.error(f"Failed to backfill centroid for {epoch_id}: {e}")
+        return centroid
+
+    def _compute_centroid(self, epoch_id: str) -> Optional[np.ndarray]:
+        file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
+        if not os.path.exists(file_path):
+            return None
+        try:
+            table = pq.read_table(file_path, columns=["embedding"])
+            embeddings = np.array(table["embedding"].to_pylist(), dtype=np.float32)
+            if embeddings.size == 0:
+                return None
+            centroid = np.mean(embeddings, axis=0)
+            norm = float(np.linalg.norm(centroid))
+            if norm > 1e-10:
+                centroid = centroid / norm
+            return centroid.astype(np.float32)
+        except Exception as e:
+            logger.error(f"Failed to compute centroid for {epoch_id}: {e}")
+            return None
+
+    def get_epochs_by_mtime(self, descending: bool = True) -> List[str]:
+        """Epoch ids sorted by parquet modification time (newest first by default)."""
+        scored = []
+        for epoch_id in self.get_all_epochs():
+            path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
+            try:
+                mtime = os.path.getmtime(path)
+            except OSError:
+                mtime = 0.0
+            scored.append((mtime, epoch_id))
+        scored.sort(key=lambda x: x[0], reverse=descending)
+        return [epoch_id for _, epoch_id in scored]
 
     def load_epoch(self, epoch_id: str) -> List[UnifiedMemoryAtom]:
         file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
@@ -517,7 +581,7 @@ class ColdTier:
     def _cleanup_epochs(self, epochs: List[str]):
         """Delete Parquet and HNSW files for given epochs."""
         for epoch in epochs:
-            for ext in (".parquet", ".hnsw"):
+            for ext in (".parquet", ".hnsw", ".centroid.npy"):
                 p = os.path.join(self.storage_dir, f"{epoch}{ext}")
                 if os.path.exists(p):
                     try:

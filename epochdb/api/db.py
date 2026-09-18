@@ -482,7 +482,7 @@ class EpochDB(EngineEpochDB):
             super().fork(parent_epoch_id, new_epoch_id)
             return new_epoch_id
 
-    def query(self, text: str, k: int = 5, filters: Optional[dict] = None, min_score: float = 0.0, memory_type: Optional[str] = None, context_window: int = 0, expand_hops: int = 0) -> List[Memory]:
+    def query(self, text: str, k: int = 5, filters: Optional[dict] = None, min_score: float = 0.0, memory_type: Optional[str] = None, context_window: int = 0, expand_hops: int = 0, cold_search_mode: Optional[str] = None) -> List[Memory]:
         """Query memory using semantic search."""
         query_entities = [str(e) for e in self.extract_entities(text)]
         if self._model_name:
@@ -499,6 +499,7 @@ class EpochDB(EngineEpochDB):
                 query_entities=query_entities,
                 filters=filters,
                 context_window=context_window,
+                cold_search_mode=cold_search_mode,
             )
             # Filter by memory_type if specified
             if memory_type:
@@ -520,7 +521,7 @@ class EpochDB(EngineEpochDB):
                     memories.append(Memory(atom))
             return memories
 
-    def multi_hop(self, text: str, hops: int = 2, k: int = 5, filters: Optional[dict] = None, context_window: int = 0) -> List[Memory]:
+    def multi_hop(self, text: str, hops: int = 2, k: int = 5, filters: Optional[dict] = None, context_window: int = 0, cold_search_mode: Optional[str] = None) -> List[Memory]:
         """Multi-hop relational query."""
         query_entities = [str(e) for e in self.extract_entities(text)]
         if self._model_name:
@@ -537,6 +538,7 @@ class EpochDB(EngineEpochDB):
                 query_entities=query_entities,
                 filters=filters,
                 context_window=context_window,
+                cold_search_mode=cold_search_mode,
             )
             return [Memory(atom) for atom in atoms]
 
@@ -1015,10 +1017,17 @@ class AsyncEpochDB:
         db = await self._get_db()
         return await asyncio.to_thread(db.add_memory, payload, embedding, triples, atom_id)
 
-    async def recall(self, query_emb: np.ndarray, top_k: int = 5, expand_hops: int = 1, query_entities: Optional[List[str]] = None) -> List[Any]:
+    async def recall(self, query_emb: np.ndarray, top_k: int = 5, expand_hops: int = 1, query_entities: Optional[List[str]] = None, cold_search_mode: Optional[str] = None) -> List[Any]:
         import asyncio
         db = await self._get_db()
-        return await asyncio.to_thread(db.recall, query_emb, top_k, expand_hops, query_entities)
+        return await asyncio.to_thread(
+            db.recall,
+            query_emb,
+            top_k=top_k,
+            expand_hops=expand_hops,
+            query_entities=query_entities,
+            cold_search_mode=cold_search_mode,
+        )
 
     async def force_checkpoint(self):
         import asyncio

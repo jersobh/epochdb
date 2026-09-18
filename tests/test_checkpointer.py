@@ -80,6 +80,36 @@ def test_put_writes(test_db):
     assert len(write_files) == 1
     assert "task_1" in write_files[0]
 
+def test_langgraph_compile_invoke_resume(test_db):
+    """Compile a StateGraph against EpochDBCheckpointer and restore thread state."""
+    from typing import TypedDict
+    from langgraph.graph import StateGraph, START, END
+
+    class GraphState(TypedDict):
+        n: int
+        note: str
+
+    def bump(state: GraphState) -> GraphState:
+        return {"n": state["n"] + 1, "note": state.get("note", "") + "x"}
+
+    checkpointer = EpochDBCheckpointer(test_db)
+    workflow = StateGraph(GraphState)
+    workflow.add_node("bump", bump)
+    workflow.add_edge(START, "bump")
+    workflow.add_edge("bump", END)
+    app = workflow.compile(checkpointer=checkpointer)
+    config = {"configurable": {"thread_id": "graph_thread"}}
+
+    first = app.invoke({"n": 0, "note": ""}, config)
+    assert first == {"n": 1, "note": "x"}
+
+    second = app.invoke({"n": first["n"], "note": first["note"]}, config)
+    assert second == {"n": 2, "note": "xx"}
+
+    restored = workflow.compile(checkpointer=checkpointer).get_state(config)
+    assert restored.values == {"n": 2, "note": "xx"}
+
+
 @pytest.mark.anyio
 async def test_async_save_load(test_db):
     checkpointer = EpochDBCheckpointer(test_db)
