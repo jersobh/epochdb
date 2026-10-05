@@ -5,7 +5,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from epochdb.core.atom import UnifiedMemoryAtom
+from epochdb.retrieval.keyword_index import KeywordIndex, atom_text
 from epochdb.retrieval.quantitative_index import QuantitativeIndexManager
+from epochdb.storage.skill_index import SkillIndex
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,10 @@ class HotTier:
         self.unit_registry = UnitRegistry()
         self.quant_index = QuantitativeIndexManager(self.unit_registry, storage_dir=self.storage_dir)
 
+        # Lexical + skill indexes (hot tier only; cold tier scanned on demand).
+        self.keyword_index = KeywordIndex()
+        self.skill_index = SkillIndex()
+
     def _maybe_resize(self):
         """Double the index capacity if we're approaching the limit."""
         if self._next_int_id >= int(self.max_elements * _RESIZE_THRESHOLD):
@@ -103,6 +109,8 @@ class HotTier:
 
         # Index quantitative data.
         self.quant_index.index_atom(atom)
+        self.keyword_index.index(atom.id, atom_text(atom.payload))
+        self.skill_index.index_atom(atom)
 
     # -------------------------------------------------------------------------
     # Staging Area (two-phase neuro-symbolic commit)
@@ -208,12 +216,17 @@ class HotTier:
 
         self.atoms[atom.id] = atom
         self.quant_index.index_atom(atom)
+        self.keyword_index.index(atom.id, atom_text(atom.payload))
+        self.skill_index.index_atom(atom)
 
     def remove_atom(self, atom_id: str) -> bool:
         """Remove an atom from hot storage and prevent stale HNSW hits."""
         atom = self.atoms.pop(atom_id, None)
         if atom is None:
             return False
+
+        self.keyword_index.remove(atom_id)
+        self.skill_index.unindex_atom(atom_id, atom)
 
         int_id = self.uuid_to_int.pop(atom_id, None)
         if int_id is not None:
@@ -264,3 +277,5 @@ class HotTier:
             allow_replace_deleted=True,
         )
         self.quant_index.clear()
+        self.keyword_index.clear()
+        self.skill_index.clear()

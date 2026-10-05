@@ -25,7 +25,7 @@ class RememberInput(BaseModel):
     )
     memory_type: Optional[str] = Field(
         default=None,
-        description="Optional memory type: 'general', 'episodic' (conversation context), 'profile' (user facts), or 'working' (short-term)."
+        description="Optional memory type: 'general', 'episodic', 'profile', 'working', or 'skill'."
     )
 
 
@@ -35,7 +35,7 @@ class QueryInput(BaseModel):
     min_score: float = Field(default=0.0, description="Minimum similarity score threshold (0.0 to 1.0).")
     memory_type: Optional[str] = Field(
         default=None,
-        description="Optional filter by memory type: 'general', 'episodic', 'profile', or 'working'."
+        description="Optional filter by memory type: 'general', 'episodic', 'profile', 'working', or 'skill'."
     )
 
 
@@ -72,6 +72,45 @@ class AnalyzeInput(BaseModel):
 class DeleteInput(BaseModel):
     memory_id: str = Field(description="The unique ID of the memory to delete.")
     hard: bool = Field(default=False, description="If True, permanently delete the memory. If False, soft-deletes.")
+
+
+class RememberSkillInput(BaseModel):
+    skill_name: str = Field(description="Canonical name for the procedural skill.")
+    description: str = Field(description="What the skill does.")
+    steps: List[Dict[str, Any]] = Field(
+        description="Ordered steps, each with optional step_num, action, and details."
+    )
+    tool_schema: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional JSON-schema style tool definition for this skill.",
+    )
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Optional extra metadata.")
+    skill_id: Optional[str] = Field(default=None, description="Optional stable atom id for upserts.")
+    decision_rules: Optional[List[str]] = Field(
+        default=None,
+        description="Optional guardrails the agent should follow when executing the skill.",
+    )
+
+
+class GetSkillInput(BaseModel):
+    skill_name: str = Field(description="Skill name, title, skill_id, or atom id.")
+
+
+class RememberProfileInput(BaseModel):
+    user_id: str = Field(description="User identifier for the profile fact.")
+    fact_text: str = Field(description="Long-term user preference or identity fact.")
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Optional extra metadata.")
+
+
+class GetProfileInput(BaseModel):
+    user_id: str = Field(description="User identifier whose profile facts should be retrieved.")
+
+
+class HotSummaryInput(BaseModel):
+    user_id: Optional[str] = Field(
+        default=None,
+        description="Optional user id to include profile facts in the snapshot.",
+    )
 
 
 # --- Helpers ---
@@ -116,7 +155,7 @@ def get_epochdb_tools(db: Any) -> List[StructuredTool]:
         db: An instance of EpochDB or AsyncEpochDB.
         
     Returns:
-        A list of 7 tools configured for sync and async execution.
+        A list of LangChain tools configured for sync and async execution.
     """
     # Detect if we are using AsyncEpochDB or synchronous EpochDB
     is_async = hasattr(db, "_get_db_sync") or (
@@ -324,6 +363,170 @@ def get_epochdb_tools(db: Any) -> List[StructuredTool]:
         args_schema=AnalyzeInput
     )
 
+    # 9. epochdb_remember_skill
+    def remember_skill(
+        skill_name: str,
+        description: str,
+        steps: List[Dict[str, Any]],
+        tool_schema: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        skill_id: Optional[str] = None,
+        decision_rules: Optional[List[str]] = None,
+    ) -> str:
+        if is_async:
+            return db._get_db_sync().remember_skill(
+                skill_name, description, steps, tool_schema, metadata, skill_id, decision_rules
+            )
+        return db.remember_skill(
+            skill_name, description, steps, tool_schema, metadata, skill_id, decision_rules
+        )
+
+    async def aremember_skill(
+        skill_name: str,
+        description: str,
+        steps: List[Dict[str, Any]],
+        tool_schema: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        skill_id: Optional[str] = None,
+        decision_rules: Optional[List[str]] = None,
+    ) -> str:
+        if is_async:
+            return await db.remember_skill(
+                skill_name, description, steps, tool_schema, metadata, skill_id, decision_rules
+            )
+        return await asyncio.to_thread(
+            db.remember_skill,
+            skill_name,
+            description,
+            steps,
+            tool_schema,
+            metadata,
+            skill_id,
+            decision_rules,
+        )
+
+    remember_skill_tool = StructuredTool.from_function(
+        func=remember_skill,
+        coroutine=aremember_skill,
+        name="epochdb_remember_skill",
+        description="Store a procedural skill (SOP / tool playbook) as a typed MemoryType.SKILL atom.",
+        args_schema=RememberSkillInput,
+    )
+
+    # 10. epochdb_get_skill
+    def get_skill(skill_name: str) -> Optional[Dict[str, Any]]:
+        if is_async:
+            mem = db._get_db_sync().get_skill(skill_name)
+        else:
+            mem = db.get_skill(skill_name)
+        return _serialize_memory(mem) if mem else None
+
+    async def aget_skill(skill_name: str) -> Optional[Dict[str, Any]]:
+        if is_async:
+            mem = await db.get_skill(skill_name)
+        else:
+            mem = await asyncio.to_thread(db.get_skill, skill_name)
+        return _serialize_memory(mem) if mem else None
+
+    get_skill_tool = StructuredTool.from_function(
+        func=get_skill,
+        coroutine=aget_skill,
+        name="epochdb_get_skill",
+        description="Retrieve a procedural skill by name, title, skill_id, or atom id.",
+        args_schema=GetSkillInput,
+    )
+
+    # 11. epochdb_list_skills
+    def list_skills() -> List[Dict[str, Any]]:
+        if is_async:
+            skills = db._get_db_sync().list_skills()
+        else:
+            skills = db.list_skills()
+        return [_serialize_memory(s) for s in skills]
+
+    async def alist_skills() -> List[Dict[str, Any]]:
+        if is_async:
+            skills = await db.list_skills()
+        else:
+            skills = await asyncio.to_thread(db.list_skills)
+        return [_serialize_memory(s) for s in skills]
+
+    list_skills_tool = StructuredTool.from_function(
+        func=list_skills,
+        coroutine=alist_skills,
+        name="epochdb_list_skills",
+        description="List all stored procedural skills (MemoryType.SKILL).",
+    )
+
+    # 12. epochdb_remember_user_profile
+    def remember_user_profile(
+        user_id: str,
+        fact_text: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        if is_async:
+            return db._get_db_sync().remember_user_profile(user_id, fact_text, metadata)
+        return db.remember_user_profile(user_id, fact_text, metadata)
+
+    async def aremember_user_profile(
+        user_id: str,
+        fact_text: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        if is_async:
+            return await db.remember_user_profile(user_id, fact_text, metadata)
+        return await asyncio.to_thread(db.remember_user_profile, user_id, fact_text, metadata)
+
+    remember_profile_tool = StructuredTool.from_function(
+        func=remember_user_profile,
+        coroutine=aremember_user_profile,
+        name="epochdb_remember_user_profile",
+        description="Store a long-term user profile fact (MemoryType.PROFILE).",
+        args_schema=RememberProfileInput,
+    )
+
+    # 13. epochdb_get_user_profile
+    def get_user_profile(user_id: str) -> List[Dict[str, Any]]:
+        if is_async:
+            profiles = db._get_db_sync().get_user_profile(user_id)
+        else:
+            profiles = db.get_user_profile(user_id)
+        return [_serialize_memory(p) for p in profiles]
+
+    async def aget_user_profile(user_id: str) -> List[Dict[str, Any]]:
+        if is_async:
+            profiles = await db.get_user_profile(user_id)
+        else:
+            profiles = await asyncio.to_thread(db.get_user_profile, user_id)
+        return [_serialize_memory(p) for p in profiles]
+
+    get_profile_tool = StructuredTool.from_function(
+        func=get_user_profile,
+        coroutine=aget_user_profile,
+        name="epochdb_get_user_profile",
+        description="Retrieve stored profile facts for a user.",
+        args_schema=GetProfileInput,
+    )
+
+    # 14. epochdb_get_hot_summary_snapshot
+    def get_hot_summary_snapshot(user_id: Optional[str] = None) -> str:
+        if is_async:
+            return db._get_db_sync().get_hot_summary_snapshot(user_id)
+        return db.get_hot_summary_snapshot(user_id)
+
+    async def aget_hot_summary_snapshot(user_id: Optional[str] = None) -> str:
+        if is_async:
+            return await db.get_hot_summary_snapshot(user_id)
+        return await asyncio.to_thread(db.get_hot_summary_snapshot, user_id)
+
+    hot_summary_tool = StructuredTool.from_function(
+        func=get_hot_summary_snapshot,
+        coroutine=aget_hot_summary_snapshot,
+        name="epochdb_get_hot_summary_snapshot",
+        description="Build a compact profile + skills block for system-prompt injection.",
+        args_schema=HotSummaryInput,
+    )
+
     return [
         remember_tool,
         query_tool,
@@ -332,5 +535,11 @@ def get_epochdb_tools(db: Any) -> List[StructuredTool]:
         entity_graph_tool,
         update_tool,
         delete_tool,
-        analyze_tool
+        analyze_tool,
+        remember_skill_tool,
+        get_skill_tool,
+        list_skills_tool,
+        remember_profile_tool,
+        get_profile_tool,
+        hot_summary_tool,
     ]

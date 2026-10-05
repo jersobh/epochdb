@@ -500,6 +500,7 @@ class EpochDB(EngineEpochDB):
                 filters=filters,
                 context_window=context_window,
                 cold_search_mode=cold_search_mode,
+                query_text=text,
             )
             # Filter by memory_type if specified
             if memory_type:
@@ -539,6 +540,7 @@ class EpochDB(EngineEpochDB):
                 filters=filters,
                 context_window=context_window,
                 cold_search_mode=cold_search_mode,
+                query_text=text,
             )
             return [Memory(atom) for atom in atoms]
 
@@ -711,40 +713,46 @@ class EpochDB(EngineEpochDB):
         needle = (skill_name or "").strip().lower()
         if not needle:
             return None
-        for mem in self.list_skills():
-            meta = mem.metadata or {}
-            candidates = [
-                meta.get("skill_name"),
-                meta.get("title"),
-                meta.get("skill_id"),
-                meta.get("process_id"),
-                mem.id,
-            ]
-            if any(str(c).strip().lower() == needle for c in candidates if c):
-                return mem
+        with self._internal_lock:
+            atom_id = self.hot_tier.skill_index.resolve(needle)
+            if atom_id and atom_id not in self.deleted_atom_ids:
+                mem = self.get(atom_id)
+                if mem and not mem.metadata.get("_deleted"):
+                    return mem
+
+            cold_ref = self.cold_tier.resolve_skill_name(needle)
+            if cold_ref:
+                cold_id, _epoch_id = cold_ref
+                if cold_id not in self.deleted_atom_ids:
+                    mem = self.get(cold_id)
+                    if mem and not mem.metadata.get("_deleted"):
+                        return mem
+
         # Semantic fallback
         skills = self.query(text=skill_name, k=5, filters={"skill_name": skill_name}, memory_type="skill")
         return skills[0] if skills else None
 
     def list_skills(self) -> List[Memory]:
         """Lists all synthesized procedural skills stored in EpochDB."""
-        skills = []
-        seen = set()
-        for mem in self.get_timeline():
-            meta = mem.metadata or {}
-            is_skill = (
-                mem.memory_type == "skill"
-                or meta.get("type") in ("skill", "process_summary")
-                or bool(meta.get("skill_name"))
-            )
-            if not is_skill or meta.get("_deleted"):
-                continue
-            if mem.id in seen:
-                continue
-            seen.add(mem.id)
-            skills.append(mem)
-        skills.sort(key=lambda m: m.created_at or 0, reverse=True)
-        return skills
+        with self._internal_lock:
+            atom_ids = set(self.hot_tier.skill_index.list_skill_ids())
+            for atom_id, _epoch_id in self.cold_tier.list_skill_atom_refs():
+                if atom_id not in self.hot_tier.atoms:
+                    atom_ids.add(atom_id)
+
+            skills: List[Memory] = []
+            seen: set = set()
+            for atom_id in atom_ids:
+                if atom_id in seen or atom_id in self.deleted_atom_ids:
+                    continue
+                mem = self.get(atom_id)
+                if mem is None or mem.metadata.get("_deleted"):
+                    continue
+                seen.add(atom_id)
+                skills.append(mem)
+
+            skills.sort(key=lambda m: m.created_at or 0, reverse=True)
+            return skills
 
     def get_hot_summary_snapshot(self, user_id: Optional[str] = None) -> str:
         """

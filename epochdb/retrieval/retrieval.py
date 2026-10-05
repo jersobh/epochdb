@@ -267,6 +267,7 @@ class RetrievalManager:
         filters: Optional[Dict[str, Any]] = None,
         context_window: int = 0,
         cold_search_mode: Optional[str] = None,
+        query_text: Optional[str] = None,
     ) -> List[UnifiedMemoryAtom]:
         query_entities = set(query_entities) if query_entities else set()
         # Freeze the original query intent before graph expansion contaminates it.
@@ -310,6 +311,17 @@ class RetrievalManager:
                 query_entities, query_emb, add_candidate, candidates
             )
 
+        # --- 1a2. Keyword Hook: Hot + probed cold tiers (BM25 / lexical overlap) ---
+        keyword_scores: Dict[str, float] = {}
+        if query_text and query_text.strip():
+            for atom_id, score in self.hot_tier.keyword_index.search(
+                query_text, top_k=top_k * 10
+            ):
+                atom = self.hot_tier.atoms.get(atom_id)
+                if atom is not None:
+                    keyword_scores[atom_id] = score
+                    add_candidate(atom, float(score))
+
         # --- 1b. Semantic Hook: Cold Tier (probed epochs, not a full broadcast) ---
         plan = self.plan_cold_search(
             query_emb,
@@ -318,6 +330,16 @@ class RetrievalManager:
         )
         self.last_probe_plan = plan
         epochs = plan.epochs
+
+        if query_text and query_text.strip():
+            kw_epochs = epochs if epochs else self.cold_tier.get_all_epochs()
+            for atom, score in self.cold_tier.search_keyword(
+                query_text, epochs=kw_epochs, top_k=top_k * 10
+            ):
+                keyword_scores[atom.id] = max(keyword_scores.get(atom.id, 0.0), score)
+                atom.access_count += self._access_deltas.get(atom.id, 0)
+                add_candidate(atom, float(score))
+
         if epochs:
             pool = self._get_search_pool()
             future_to_epoch = {
@@ -538,6 +560,14 @@ class RetrievalManager:
         unique_results.sort(key=lambda x: get_quant_score(x[0]), reverse=True)
         quant_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
 
+        if keyword_scores:
+            unique_results.sort(
+                key=lambda x: keyword_scores.get(x[0].id, 0.0), reverse=True
+            )
+            keyword_ranks = {x[0].id: i for i, x in enumerate(unique_results)}
+        else:
+            keyword_ranks = {x[0].id: 0 for x in unique_results}
+
         # 3. Discrete Topic Lock (Consolidated Saliency)
         degree_cache: Dict[str, int] = {}
 
@@ -574,10 +604,11 @@ class RetrievalManager:
             return boost
 
         def multi_rrf_score(atom_id: str, atom: UnifiedMemoryAtom) -> float:
-            # 3-Way RRF Fusion
+            # 5-Way RRF Fusion
             s_rank = semantic_ranks.get(atom_id, 1000)
             r_rank = recency_ranks.get(atom_id, 1000)
             e_rank = entity_ranks.get(atom_id, 1000)
+            k_rank = keyword_ranks.get(atom_id, 1000)
             
             # Weighted reciprocal ranks
             score = (
@@ -585,6 +616,7 @@ class RetrievalManager:
                 + 1.0 / (K + r_rank)  # Recency
                 + 1.0 / (K + e_rank)  # Multi-hop Context
                 + 2.0 / (K + quant_ranks.get(atom_id, 1000)) # Quantitative (2x weight)
+                + 1.5 / (K + k_rank)  # Keyword / BM25 (1.5x weight)
             )
             
             # Topic Lock (Precision Booster)
