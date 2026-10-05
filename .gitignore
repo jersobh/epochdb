@@ -35,3 +35,8 @@ dist/
 build/
 *.egg-info/
 .test_debug_analytics/
+
+# Documentation site (VitePress)
+node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/

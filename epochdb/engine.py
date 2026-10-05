@@ -698,6 +698,8 @@ class EpochDB:
             if normalized_model_name.startswith("google:"):
                 model_id = normalized_model_name.split("google:", 1)[-1]
                 self._embedder = GoogleEmbedder(model_id, dim=self.dim)
+            elif normalized_model_name.startswith("gemini-embedding") or normalized_model_name.startswith("text-embedding-"):
+                self._embedder = GoogleEmbedder(normalized_model_name, dim=self.dim)
             elif normalized_model_name.startswith("openai:"):
                 model_id = normalized_model_name.split("openai:", 1)[-1]
                 self._embedder = OpenAIEmbedder(model_id, dim=self.dim)
