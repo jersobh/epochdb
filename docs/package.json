@@ -1,6 +1,6 @@
 {
   "name": "epochdb-docs",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "Documentation for EpochDB — The Agentic Memory Engine",
   "scripts": {
     "docs:dev": "vitepress dev",

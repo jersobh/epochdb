@@ -88,11 +88,40 @@ def query(
     temporal_window: int = 1,
 ) -> list[Memory]
 ```
-Executes the 5-stage retrieval pipeline.
+Executes the hybrid retrieval pipeline (semantic + keyword + KG + RRF).
 - **`filters`**: MongoDB-style metadata filter dictionary (`$gt`, `$in`, etc.).
 - **`expand_hops`**: Number of Knowledge Graph relational hops to explore.
 - **`expand_context`**: If `True`, returns adjacent chronological turns surrounding matches.
+- **`memory_type`**: Optional filter (`general`, `episodic`, `profile`, `working`, `skill`).
 - **Returns**: Ranked list of `Memory` domain objects.
+
+---
+
+### `remember_skill()`
+```python
+def remember_skill(
+    self,
+    skill_name: str,
+    description: str,
+    steps: list[dict],
+    tool_schema: dict | None = None,
+    metadata: dict | None = None,
+    skill_id: str | None = None,
+    decision_rules: list[str] | None = None,
+    triples: list[tuple] | None = None,
+) -> str
+```
+Stores a procedural `MemoryType.SKILL` atom with searchable text, structured metadata, and graph triples.
+- **Returns**: The skill atom id (stable when `skill_id` is set).
+
+---
+
+### `get_skill()` / `list_skills()`
+```python
+def get_skill(self, skill_name: str) -> Memory | None
+def list_skills(self) -> list[Memory]
+```
+Indexed skill lookup (hot `SkillIndex` + cold refs) and catalog listing. See [Skill Memory](/guide/skill-memory).
 
 ---
 

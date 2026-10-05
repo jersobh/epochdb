@@ -42,7 +42,7 @@ graph TD
         HNSW_C --> Probe[Epoch Probe]
         Probe --> Pool
         Pool --> KG_Exp[KG Expansion & Topic Lock]
-        KG_Exp --> RRF[4-Way RRF Fusion + Supersession]
+        KG_Exp --> RRF[5-Way RRF Fusion + Supersession]
         RRF --> Context[Agentic Context]
     end
 ```
@@ -61,12 +61,12 @@ As epochs expire (or on demand), the Hot Tier is flushed to disk:
 
 ---
 
-## 3. The 5-Stage Retrieval Pipeline
+## 3. The Retrieval Pipeline
 
 EpochDB uses a multi-stage pipeline to ensure perfect recall, even in high-noise or multi-hop scenarios.
 
-### Stage 1: Parallel Semantic Hook
-The engine queries the Hot Tier HNSW and a **probe set** of Cold Tier epoch indexes (not every file on disk). The probe set is the union of:
+### Stage 1: Parallel Semantic + Keyword Hook
+The engine queries the Hot Tier HNSW, the **hot-tier BM25 KeywordIndex**, and a **probe set** of Cold Tier epoch indexes (not every file on disk). The same probed epochs are also scanned for lexical overlap. The probe set is the union of:
 
 1. The newest epochs by parquet mtime (working-set / recency window).
 2. Epochs listed in the Global Entity Index for the query entities.
@@ -83,14 +83,16 @@ The engine pulls ALL atoms associated with the query's entities from the Global 
 ### Stage 4: Relational Expansion
 For each atom in the candidate pool, the engine traverses the Knowledge Graph for $N$ hops (controlled by `expand_hops`). This connects disparate facts across different epochs, enabling multi-hop reasoning.
 
-### Stage 5: 4-Way RRF Fusion & Supersession
-This is the "brain" of EpochDB. It combines four distinct signals using **Reciprocal Rank Fusion (RRF)**:
+### Stage 5: 5-Way RRF Fusion & Supersession
+This is the "brain" of EpochDB. It combines five ranking signals using **Reciprocal Rank Fusion (RRF)**:
 
 | Pillar | Mechanism | Description |
 |---|---|---|
-| **Semantic** | RRF Rank | Proximity in embedding space. |
+| **Semantic** | RRF Rank (3×) | Proximity in embedding space. |
+| **Keyword** | RRF Rank (1.5×) | BM25 / lexical overlap for IDs, codes, and exact names. |
 | **Recency** | RRF Rank | Strictly monotonic timestamps for deterministic ordering. |
 | **Entities** | RRF Rank | Overlap with query entities (including expanded context). |
+| **Quantitative** | RRF Rank (2×) | Scalar / series alignment with numeric query intent. |
 | **Topic Lock** | `+20.0` Bonus | A "nuclear" additive bonus for atoms matching the **original** query intent. |
 
 #### Signal-to-Noise Filtering & Constants Design

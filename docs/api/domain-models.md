@@ -13,7 +13,7 @@ class Memory:
     id: str                         # Unique atom identifier
     text: str                       # Verbatim text payload
     metadata: dict                  # Custom metadata dictionary
-    score: float                    # Fused 4-Way RRF relevance score
+    score: float                    # Fused 5-Way RRF relevance score
     triples: list[tuple]            # Knowledge Graph triples (Subject, Predicate, Object)
     entities: list[str]             # Extracted entity names associated with this atom
     created_at: datetime            # UTC timestamp when atom was recorded

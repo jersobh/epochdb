@@ -64,7 +64,7 @@ graph TD
         HNSW_C --> Probe[Epoch Probe: recency + GEI + centroids]
         Probe --> Pool
         Pool --> KG_Exp[KG Expansion & Topic Lock]
-        KG_Exp --> RRF[4-Way RRF Fusion + Supersession]
+        KG_Exp --> RRF[5-Way RRF Fusion + Supersession]
         RRF --> Context[Precision Agent Context]
     end
 ```

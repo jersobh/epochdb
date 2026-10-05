@@ -1,6 +1,6 @@
 {
   "name": "epochdb",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "EpochDB — Agentic Memory Engine",
   "scripts": {
     "docs:dev": "npm --prefix docs run docs:dev",
