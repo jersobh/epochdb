@@ -33,13 +33,13 @@ graph TD
         Cold_HNSW --- Centroids[Epoch Mean Centroids]
     end
 
-    subgraph "5-Stage Retrieval Subsystem"
-        Hot_HNSW --> Hook[Parallel Semantic Hook]
+    subgraph "Retrieval Subsystem"
+        Hot_HNSW --> Hook[Parallel Semantic + Keyword Hook]
         Cold_HNSW -.->|Probed Epochs: Recency + GEI + Centroids| Hook
         Hook --> Boot[Semantic Bootstrapping]
         Boot --> Seed[Global KG Seeding (Topic Lock)]
         Seed --> Expansion[Relational Expansion (N-Hops)]
-        Expansion --> Fusion[4-Way RRF Fusion & Supersession Engine]
+        Expansion --> Fusion[5-Way RRF Fusion & Supersession Engine]
         Fusion --> Output([Contextualized Memory Atoms])
     end
 ```
@@ -126,7 +126,7 @@ When validators are registered, the write path bifurcates:
      │
      ├─ 4. Relational Expansion (Traverse graph edges N-hops outward)
      │
-     └─ 5. 4-Way RRF Fusion & Supersession (+20.0 Topic Lock, 0.0001x Staleness Demotion)
+     └─ 5. 5-Way RRF Fusion & Supersession (+20.0 Topic Lock, keyword/BM25, 0.0001x Staleness Demotion)
               │
               ▼
     [Top-K Ranked Verbatim Memory Atoms]

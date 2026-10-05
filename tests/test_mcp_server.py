@@ -26,6 +26,12 @@ def test_mcp_tools_registration():
     assert "epochdb_delete" in tool_names
     assert "epochdb_analyze" in tool_names
     assert "epochdb_adaptive_query" in tool_names
+    assert "epochdb_remember_skill" in tool_names
+    assert "epochdb_get_skill" in tool_names
+    assert "epochdb_list_skills" in tool_names
+    assert "epochdb_remember_user_profile" in tool_names
+    assert "epochdb_get_user_profile" in tool_names
+    assert "epochdb_get_hot_summary_snapshot" in tool_names
 
 def test_mcp_tools_execution():
     # Direct execution check on the underlying tool functions
@@ -49,4 +55,19 @@ def test_mcp_tools_execution():
     # Our fallback LocalFactExtractor returns mentions for capitalized words, e.g. France, Paris
     has_france = any(t["subject"] == "France" or t["object"] == "France" for t in triples)
     assert has_france
+
+    remember_skill = mcp._tool_manager._tools["epochdb_remember_skill"].fn
+    get_skill = mcp._tool_manager._tools["epochdb_get_skill"].fn
+    list_skills = mcp._tool_manager._tools["epochdb_list_skills"].fn
+
+    remember_skill(
+        skill_name="reset_password",
+        description="Reset a user password.",
+        steps=[{"step_num": 1, "action": "Verify identity"}],
+        skill_id="skill-reset-password",
+    )
+    skill = get_skill("reset_password")
+    assert skill is not None
+    assert skill["memory_type"] == "skill"
+    assert len(list_skills()) >= 1
 

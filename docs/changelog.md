@@ -6,6 +6,17 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.11.0] - 2026-10-05
+### Added
+- **Keyword / BM25 retrieval channel**: hot-tier inverted index (`KeywordIndex`) plus lexical cold-tier scans over probed epochs. Exact IDs, error codes, and names rank via a new RRF keyword signal (1.5× weight) fused with semantic, recency, entity, and quantitative ranks.
+- **Skill index**: `SkillIndex` on the hot tier maps skill names / titles / ids → atom ids. `get_skill()` and `list_skills()` no longer walk the full timeline; cold skill refs are discovered from Parquet `memory_type` / metadata only.
+- **MCP skill & profile tools**: `epochdb_remember_skill`, `epochdb_get_skill`, `epochdb_list_skills`, `epochdb_remember_user_profile`, `epochdb_get_user_profile`, and `epochdb_get_hot_summary_snapshot`.
+- **LangChain skill & profile tools**: matching StructuredTools in `get_epochdb_tools()` (14 tools total). `memory_type` schemas now include `'skill'`.
+- **Docs**: VitePress guide pages for [Skill Memory](/guide/skill-memory) and [comparison vs Mem0 / Letta / Graphiti](/guide/comparison).
+### Changed
+- **`query()` / `multi_hop()`**: pass the original query text into the retrieval pipeline so the keyword channel can score candidates.
+- **RRF fusion**: expanded from 4-way to 5-way (adds keyword / BM25).
+
 ## [1.10.0] - 2026-09-18
 ### Added
 - **Probed cold-tier retrieval**: queries no longer broadcast to every historical HNSW index. The engine opens a probe set of epochs from (1) recency, (2) Global Entity Index routing, and (3) cosine neighbours of per-epoch embedding centroids.

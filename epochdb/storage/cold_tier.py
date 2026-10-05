@@ -9,6 +9,8 @@ from typing import List, Optional, Dict, Any, Tuple
 from collections import OrderedDict
 from epochdb.core.atom import UnifiedMemoryAtom, PayloadType, MemoryType, ScalarPayload, SeriesPayload, SeriesPoint, ConstraintPayload
 from epochdb.core.units import UnitRegistry
+from epochdb.retrieval.keyword_index import atom_text, score_text_overlap
+from epochdb.storage.skill_index import skill_lookup_keys
 import logging
 import time
 
@@ -477,6 +479,94 @@ class ColdTier:
                 epoch_id = f[: -len(".parquet")]
                 epochs.append(epoch_id)
         return epochs
+
+    def search_keyword(
+        self,
+        query_text: str,
+        epochs: Optional[List[str]] = None,
+        top_k: int = 50,
+    ) -> List[Tuple[UnifiedMemoryAtom, float]]:
+        """Lexical search over probed cold epochs (payload text only)."""
+        if not query_text or not query_text.strip():
+            return []
+
+        target_epochs = epochs if epochs is not None else self.get_all_epochs()
+        hits: List[Tuple[UnifiedMemoryAtom, float]] = []
+
+        for epoch_id in target_epochs:
+            file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
+            if not os.path.exists(file_path):
+                continue
+            try:
+                schema = pq.read_schema(file_path)
+                columns = ["id", "payload", "payload_type", "metadata"]
+                if "memory_type" in schema.names:
+                    columns.append("memory_type")
+                table = pq.read_table(file_path, columns=columns)
+            except Exception as exc:
+                logger.error("Keyword search failed for epoch %s: %s", epoch_id, exc)
+                continue
+
+            for row in table.to_pylist():
+                atom = self._row_to_atom(row)
+                score = score_text_overlap(query_text, atom_text(atom.payload))
+                if score <= 0:
+                    continue
+                atom.epoch_id = epoch_id
+                hits.append((atom, score))
+
+        hits.sort(key=lambda item: item[1], reverse=True)
+        return hits[:top_k]
+
+    def _row_is_skill(self, row: dict) -> bool:
+        metadata: Dict[str, Any] = {}
+        if row.get("metadata") is not None:
+            try:
+                metadata = json.loads(row["metadata"])
+            except json.JSONDecodeError:
+                metadata = {}
+
+        mt_str = row.get("memory_type") or metadata.get("type") or "general"
+        if mt_str in ("process_summary", "skill"):
+            return True
+        return metadata.get("type") in ("skill", "process_summary") or bool(metadata.get("skill_name"))
+
+    def list_skill_atom_refs(self) -> List[Tuple[str, str]]:
+        """Return (atom_id, epoch_id) pairs for skill memories in cold storage."""
+        refs: List[Tuple[str, str]] = []
+        for epoch_id in self.get_all_epochs():
+            file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
+            if not os.path.exists(file_path):
+                continue
+            try:
+                schema = pq.read_schema(file_path)
+                columns = ["id", "metadata"]
+                if "memory_type" in schema.names:
+                    columns.append("memory_type")
+                table = pq.read_table(file_path, columns=columns)
+            except Exception as exc:
+                logger.error("Skill index scan failed for epoch %s: %s", epoch_id, exc)
+                continue
+
+            for row in table.to_pylist():
+                if self._row_is_skill(row):
+                    refs.append((row["id"], epoch_id))
+
+        return refs
+
+    def resolve_skill_name(self, needle: str) -> Optional[Tuple[str, str]]:
+        """Resolve a skill name/id to (atom_id, epoch_id) in cold storage."""
+        key = (needle or "").strip().lower()
+        if not key:
+            return None
+
+        for atom_id, epoch_id in self.list_skill_atom_refs():
+            atoms = self.load_atom_metadata(epoch_id, [atom_id])
+            if not atoms:
+                continue
+            if key in skill_lookup_keys(atoms[0]):
+                return atom_id, epoch_id
+        return None
 
     def compact(self, active_epoch_id: str, kg_manager: Any) -> Optional[str]:
         """

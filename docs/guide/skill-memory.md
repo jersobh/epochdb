@@ -124,7 +124,7 @@ Quotes are stripped from the action text before it becomes a triple object. Pass
 
 ### `get_skill(skill_name)`
 
-Lookup is exact and case-insensitive, in this order:
+Lookup is exact and case-insensitive via the hot-tier `SkillIndex`, then cold-tier skill refs, matching any of:
 
 1. `metadata["skill_name"]`
 2. `metadata["title"]`
@@ -136,11 +136,7 @@ If none of those match, `get_skill` runs a semantic `query` limited to `memory_t
 
 ### `list_skills()`
 
-Walks the full timeline and keeps an atom when any of these is true:
-
-- `memory_type` is `"skill"`
-- `metadata["type"]` is `"skill"` or `"process_summary"`
-- `metadata["skill_name"]` is set
+Uses the hot-tier `SkillIndex` plus a cold-tier Parquet scan for skill-typed atoms (`memory_type` / `metadata["type"]` / `skill_name`). It does **not** walk the full timeline.
 
 Deleted atoms (`metadata["_deleted"]`) are skipped. Results are unique by atom id and sorted newest first.
 
@@ -178,3 +174,16 @@ procedures = db.query(
 The same `memory_type` argument exists on `AsyncEpochDB.query`, the LangChain tools in `epochdb.core.tools`, and the remote client. An unknown type string is ignored and the query runs unfiltered.
 
 `remember(..., memory_type="skill")` is enough when the caller already has a flat text blob. Use `remember_skill()` when the procedure has steps, rules, and a tool schema that later code will read from `metadata`.
+
+---
+
+## Agent tooling (MCP & LangChain)
+
+Skills and profiles are exposed as first-class tools:
+
+| Surface | Tools |
+| --- | --- |
+| MCP | `epochdb_remember_skill`, `epochdb_get_skill`, `epochdb_list_skills`, `epochdb_remember_user_profile`, `epochdb_get_user_profile`, `epochdb_get_hot_summary_snapshot` |
+| LangChain (`get_epochdb_tools`) | Same names as StructuredTools |
+
+Pass `memory_type="skill"` on `epochdb_remember` / `epochdb_query` when you want typed filters without the structured skill writer.

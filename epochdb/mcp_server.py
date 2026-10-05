@@ -34,7 +34,7 @@ def epochdb_remember(text: str, metadata: Optional[dict] = None, memory_type: Op
     Args:
         text: The text content of the memory or fact.
         metadata: Optional metadata dict.
-        memory_type: Optional memory type ('general', 'episodic', 'profile', 'working').
+        memory_type: Optional memory type ('general', 'episodic', 'profile', 'working', 'skill').
     """
     db = get_db()
     return db.remember(text, metadata=metadata, memory_type=memory_type)
@@ -48,7 +48,7 @@ def epochdb_query(query: str, k: int = 5, min_score: float = 0.0, memory_type: O
         query: The semantic search query.
         k: The number of relevant memories to retrieve.
         min_score: Minimum similarity score threshold (0.0 to 1.0).
-        memory_type: Optional filter by memory type ('general', 'episodic', 'profile', 'working').
+        memory_type: Optional filter by memory type ('general', 'episodic', 'profile', 'working', 'skill').
         context_window: Optional number of context turns to retrieve around the matched memory.
     """
     db = get_db()
@@ -206,6 +206,111 @@ def epochdb_analyze(text: str) -> list:
     db = get_db()
     triples = db.analyze(text)
     return [{"subject": t[0], "predicate": t[1], "object": t[2]} for t in triples]
+
+@mcp.tool()
+def epochdb_remember_skill(
+    skill_name: str,
+    description: str,
+    steps: List[dict],
+    tool_schema: Optional[dict] = None,
+    metadata: Optional[dict] = None,
+    skill_id: Optional[str] = None,
+    decision_rules: Optional[List[str]] = None,
+) -> str:
+    """
+    Store a procedural skill (SOP / tool playbook) as MemoryType.SKILL.
+
+    Args:
+        skill_name: Canonical skill name.
+        description: What the skill accomplishes.
+        steps: Ordered list of step dicts (step_num, action, details).
+        tool_schema: Optional JSON-schema style tool definition.
+        metadata: Optional extra metadata.
+        skill_id: Optional stable atom id for upserts.
+        decision_rules: Optional guardrails for executing the skill.
+    """
+    db = get_db()
+    return db.remember_skill(
+        skill_name,
+        description,
+        steps,
+        tool_schema,
+        metadata,
+        skill_id,
+        decision_rules,
+    )
+
+
+@mcp.tool()
+def epochdb_get_skill(skill_name: str) -> Optional[dict]:
+    """
+    Retrieve a procedural skill by name, title, skill_id, or atom id.
+    """
+    db = get_db()
+    mem = db.get_skill(skill_name)
+    if mem is None:
+        return None
+    return {
+        "id": mem.id,
+        "text": mem.text,
+        "metadata": mem.metadata,
+        "created_at": mem.created_at,
+        "memory_type": mem.memory_type,
+        "triples": mem.triples,
+    }
+
+
+@mcp.tool()
+def epochdb_list_skills() -> list:
+    """List all stored procedural skills."""
+    db = get_db()
+    return [
+        {
+            "id": m.id,
+            "text": m.text,
+            "metadata": m.metadata,
+            "created_at": m.created_at,
+            "memory_type": m.memory_type,
+        }
+        for m in db.list_skills()
+    ]
+
+
+@mcp.tool()
+def epochdb_remember_user_profile(
+    user_id: str,
+    fact_text: str,
+    metadata: Optional[dict] = None,
+) -> str:
+    """Store a long-term user profile fact (MemoryType.PROFILE)."""
+    db = get_db()
+    return db.remember_user_profile(user_id, fact_text, metadata)
+
+
+@mcp.tool()
+def epochdb_get_user_profile(user_id: str) -> list:
+    """Retrieve profile facts for a user."""
+    db = get_db()
+    return [
+        {
+            "id": m.id,
+            "text": m.text,
+            "metadata": m.metadata,
+            "created_at": m.created_at,
+            "memory_type": m.memory_type,
+        }
+        for m in db.get_user_profile(user_id)
+    ]
+
+
+@mcp.tool()
+def epochdb_get_hot_summary_snapshot(user_id: Optional[str] = None) -> str:
+    """
+    Build a compact profile + skills block suitable for system-prompt injection.
+    """
+    db = get_db()
+    return db.get_hot_summary_snapshot(user_id)
+
 
 def main():
     mcp.run()

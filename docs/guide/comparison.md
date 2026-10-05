@@ -15,6 +15,7 @@ This page compares those approaches, then explains how EpochDB's `MemoryType.SKI
 | Write path | `remember` (direct) or `propose` (LCAG validators) | LLM extraction, dedup, embed | Agent tool calls rewrite core / archival memory | LLM extracts entities and edges with bi-temporal bounds |
 | Conflict handling | Subject–Predicate supersession + Topic Lock | Dedup / update or ADD-only alongside older facts | Agent revises core blocks; archival search is semantic | Edge invalidation (`valid_at` / `invalid_at`, transaction time) |
 | Graph | Co-located triples, Active KG, Global Entity Index | Entity linking; graph stronger on Platform | Not the primary model | First-class temporal context graph |
+| Lexical search | BM25 hot index + cold lexical probes in RRF | Semantic + keyword (BM25) fusion | Typically semantic archival search | Vector + BM25 + graph hybrid |
 | LLM required to persist? | No (optional extraction / routing) | Yes for fact distillation | Yes for agent-managed memory tools | Yes for episode → graph extraction |
 | Best fit | Agents that need lossless history, state corrections, and local/self-hosted durability | Apps that want a managed memory API over existing vector backends | Long-running agents that self-manage what stays in the prompt | Systems that need bi-temporal “what was true when” graph queries |
 
@@ -26,7 +27,7 @@ This page compares those approaches, then explains how EpochDB's `MemoryType.SKI
 
 EpochDB stores every write as a **Unified Memory Atom**: raw text, `float32` embedding, metadata, and optional `(subject, predicate, object)` triples. History is not summarized away. Working memory lives in RAM (Hot Tier HNSW + WAL + Active KG). Historical epochs flush to Parquet with per-epoch HNSW indexes, a Global Entity Index, and centroid probing so cold search does not broadcast to every archive by default.
 
-Retrieval is a multi-stage pipeline (semantic hook → KG seeding → relational expansion → 4-way RRF → supersession). When a newer atom updates the same Subject–Predicate, older candidates are demoted rather than silently deleted. `propose()` adds an opt-in neuro-symbolic gate: symbolic validators must approve before WAL / HNSW / KG commit.
+Retrieval is a multi-stage pipeline (semantic + keyword hook → KG seeding → relational expansion → 5-way RRF → supersession). When a newer atom updates the same Subject–Predicate, older candidates are demoted rather than silently deleted. `propose()` adds an opt-in neuro-symbolic gate: symbolic validators must approve before WAL / HNSW / KG commit.
 
 ### Mem0 — memory layer above a vector store
 
@@ -170,10 +171,11 @@ There is no separate `.md` skill file. The procedure is a normal atom: embedded,
 
 ### Reading skills
 
-- **`get_skill(name)`** — exact match on name, title, skill id, process id, or atom id; semantic fallback scoped to `memory_type="skill"`.
-- **`list_skills()`** — timeline scan for skill-typed atoms (including legacy `process_summary` metadata).
-- **`query(..., memory_type="skill")`** — semantic / RRF retrieval limited to procedures.
+- **`get_skill(name)`** — indexed exact match on name, title, skill id, process id, or atom id; semantic fallback scoped to `memory_type="skill"`.
+- **`list_skills()`** — hot `SkillIndex` + cold skill refs (no full timeline scan).
+- **`query(..., memory_type="skill")`** — hybrid (semantic + keyword) RRF retrieval limited to procedures.
 - **`get_hot_summary_snapshot(user_id)`** — compact profile + top skills block for system-prompt injection.
+- **MCP / LangChain tools** — `epochdb_remember_skill`, `epochdb_get_skill`, `epochdb_list_skills`, and profile helpers.
 
 ### Why skills are a separate type
 

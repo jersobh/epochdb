@@ -64,8 +64,18 @@ Add EpochDB to your Cursor MCP settings:
 
 | Tool Name | Parameters | Description |
 | :--- | :--- | :--- |
-| **`remember`** | `text`, `triples`, `category` | Stores a verbatim memory atom with optional Knowledge Graph triples. |
-| **`query`** | `query`, `k`, `expand_hops` | Performs 5-stage retrieval with Topic Lock and supersession resolution. |
-| **`get_entity`** | `name` | Returns entity connections and historical chronological timeline. |
-| **`entity_graph`** | `name`, `depth` | Generates a multi-hop visual graph network around an entity. |
-| **`delete_memory`**| `memory_id`, `hard` | Soft or hard deletes an atom from active retrieval. |
+| **`epochdb_remember`** | `text`, `metadata`, `memory_type` | Stores a verbatim memory atom (`general`, `episodic`, `profile`, `working`, `skill`). |
+| **`epochdb_query`** | `query`, `k`, `min_score`, `memory_type`, `context_window` | Hybrid retrieval (semantic + keyword + KG) with Topic Lock and supersession. |
+| **`epochdb_multi_hop`** | `query`, `hops`, `k`, `context_window` | Multi-hop relational search across the entity graph. |
+| **`epochdb_adaptive_query`** | `query`, `k`, `context_window` | Routes to semantic / relational / temporal / quantitative engines. |
+| **`epochdb_get_timeline`** | `entity_id`, `start`, `end` | Chronological history for an entity (or all memories). |
+| **`epochdb_entity_graph`** | `entity_id`, `depth` | Multi-hop graph neighborhood around an entity. |
+| **`epochdb_update`** | `memory_id`, `text`, `metadata` | Update an existing atom. |
+| **`epochdb_delete`** | `memory_id`, `hard` | Soft or hard delete. |
+| **`epochdb_analyze`** | `text` | Extract `(subject, predicate, object)` triples without storing. |
+| **`epochdb_remember_skill`** | `skill_name`, `description`, `steps`, … | Store a procedural `MemoryType.SKILL` atom. |
+| **`epochdb_get_skill`** | `skill_name` | Resolve a skill by name / id via the skill index. |
+| **`epochdb_list_skills`** | — | List all stored skills. |
+| **`epochdb_remember_user_profile`** | `user_id`, `fact_text`, `metadata` | Store a long-term profile fact. |
+| **`epochdb_get_user_profile`** | `user_id` | Retrieve profile facts for a user. |
+| **`epochdb_get_hot_summary_snapshot`** | `user_id` | Compact profile + skills block for system-prompt injection. |

@@ -60,8 +60,8 @@ Modeled after CPU cache lines:
 - **Hot Tier (Working Memory / L1 RAM)**: In-memory HNSW index, Active Knowledge Graph, and synchronous Write-Ahead Log (WAL) delivering **0.2 ms – 0.4 ms** direct and relational retrieval latencies.
 - **Cold Tier (Historical Archive / L2 Disk)**: Epochs are periodically serialized into columnar Parquet files compressed with Zstandard (`zstd`), accompanied by dedicated epoch-level HNSW vector indexes and Global Entity Index (GEI) lookup tables.
 
-### 3. 5-Stage Retrieval Pipeline & Topic Lock
-EpochDB combines vector similarity, recency, entity co-occurrence, and relational hops using **4-Way Reciprocal Rank Fusion (RRF)**:
+### 3. Retrieval Pipeline & Topic Lock
+EpochDB combines vector similarity, keyword / BM25 matching, recency, entity co-occurrence, and relational hops using **5-Way Reciprocal Rank Fusion (RRF)**:
 - **Topic Lock Boost (`+20.0`)**: A mathematically guaranteed additive boost that locks onto query intent, elevating critical needles above adjacent semantic noise.
 - **State-Aware Supersession (`0.0001x`)**: Multiplicative penalty automatically demoting stale facts when a newer Subject-Predicate value is recorded.
 - **Signal-to-Noise Demotion (`1e-7`)**: Background noise is attenuated to guarantee clean context injection.

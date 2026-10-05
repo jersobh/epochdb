@@ -35,7 +35,7 @@ async def async_db():
 
 def test_sync_tools_execution(sync_db):
     tools = get_epochdb_tools(sync_db)
-    assert len(tools) == 8
+    assert len(tools) == 14
     
     tool_map = {t.name: t for t in tools}
     assert "epochdb_remember" in tool_map
@@ -46,6 +46,9 @@ def test_sync_tools_execution(sync_db):
     assert "epochdb_update" in tool_map
     assert "epochdb_delete" in tool_map
     assert "epochdb_analyze" in tool_map
+    assert "epochdb_remember_skill" in tool_map
+    assert "epochdb_get_skill" in tool_map
+    assert "epochdb_list_skills" in tool_map
 
     remember_tool = tool_map["epochdb_remember"]
     query_tool = tool_map["epochdb_query"]
@@ -54,6 +57,9 @@ def test_sync_tools_execution(sync_db):
     timeline_tool = tool_map["epochdb_get_timeline"]
     graph_tool = tool_map["epochdb_entity_graph"]
     analyze_tool = tool_map["epochdb_analyze"]
+    remember_skill_tool = tool_map["epochdb_remember_skill"]
+    get_skill_tool = tool_map["epochdb_get_skill"]
+    list_skills_tool = tool_map["epochdb_list_skills"]
 
     # 1. Test remember
     mem_id = remember_tool.invoke({"text": "BMW has a headquarters in Munich.", "metadata": {"triples": [("BMW", "headquartered_in", "Munich")]}})
@@ -83,6 +89,17 @@ def test_sync_tools_execution(sync_db):
     triples = analyze_tool.invoke({"text": "BMW is located in Munich"})
     assert isinstance(triples, list)
 
+    skill_id = remember_skill_tool.invoke({
+        "skill_name": "check_inventory",
+        "description": "Check warehouse inventory.",
+        "steps": [{"action": "Query stock levels"}],
+        "skill_id": "skill-check-inventory",
+    })
+    assert skill_id == "skill-check-inventory"
+    skill = get_skill_tool.invoke({"skill_name": "check_inventory"})
+    assert skill["memory_type"] == "skill"
+    assert len(list_skills_tool.invoke({})) >= 1
+
     # 6. Test update
     update_res = update_tool.invoke({"memory_id": mem_id, "text": "BMW is headquartered in Munich, Germany."})
     assert "updated successfully" in update_res
@@ -95,9 +112,9 @@ def test_sync_tools_execution(sync_db):
     delete_res = delete_tool.invoke({"memory_id": mem_id, "hard": False})
     assert "deleted successfully" in delete_res
 
-    # Verify deleted
-    results3 = query_tool.invoke({"query": "Germany", "k": 1})
-    assert len(results3) == 0
+    # Verify deleted (scope to the removed BMW memory, not other stored atoms)
+    deleted = sync_db.get(mem_id)
+    assert deleted is None
 
 
 @pytest.mark.anyio

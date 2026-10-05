@@ -30,6 +30,8 @@
 Flat vector databases retrieve text based on semantic similarity but struggle to resolve conflicting facts (e.g. *"where does the user work now?"* vs *"where did they work last year?"*). EpochDB solves this through **Atomic State Management**:
 
 - **Topic Lock & Entity Seeding**: Ensures retrieval stays within the target topic by seeding candidates directly from the Knowledge Graph.
+- **Keyword / BM25 channel**: Exact IDs, error codes, and names fuse with semantic search via a hot-tier inverted index and cold lexical probes (5-way RRF).
+- **Skill memory**: Procedural `MemoryType.SKILL` atoms with indexed lookups, MCP / LangChain tools, and hot-summary prompt injection.
 - **State-Aware Supersession**: Automatically identifies and filters out stale facts when they are updated.
 - **Adaptive Query Routing & Decomposition**: Dynamically routes incoming queries to optimal search engines (semantic, relational, temporal, or quantitative) or splits composite queries using LLMs (Gemini, OpenAI, Anthropic) or local offline rules.
 - **Contextualized Retrieval (Temporal neighbor expansion)**: Retrieves chronological context turns immediately surrounding matched memories.
@@ -72,7 +74,7 @@ graph TD
         HNSW_C --> Probe[Epoch Probe: recency + GEI + centroids]
         Probe --> Pool
         Pool --> KG_Exp[KG Expansion & Topic Lock]
-        KG_Exp --> RRF[4-Way RRF Fusion + Supersession]
+        KG_Exp --> RRF[5-Way RRF Fusion + Supersession]
         RRF --> Context[Agentic Context]
     end
 ```

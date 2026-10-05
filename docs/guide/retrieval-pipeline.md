@@ -1,10 +1,10 @@
-# The 5-Stage Retrieval Pipeline
+# The Retrieval Pipeline
 
 EpochDB's retrieval engine is engineered to solve two notorious failure modes in traditional RAG:
 1. **Multi-Hop Vector Blindness**: Inability to connect logically related facts separated across multiple documents or conversation turns.
 2. **Hallucinated Temporal Contradictions**: Returning obsolete facts instead of current ground truth.
 
-To overcome these, EpochDB executes a **5-stage retrieval pipeline** combining dense vector search, relational graph exploration, deterministic topic locking, and reciprocal rank fusion.
+To overcome these, EpochDB executes a multi-stage retrieval pipeline combining dense vector search, **keyword / BM25 matching**, relational graph exploration, deterministic topic locking, and reciprocal rank fusion.
 
 ---
 
@@ -12,27 +12,29 @@ To overcome these, EpochDB executes a **5-stage retrieval pipeline** combining d
 
 ```mermaid
 flowchart TD
-    Q([Incoming Query]) --> S1[Stage 1: Parallel Semantic Hook]
+    Q([Incoming Query]) --> S1[Stage 1: Parallel Semantic + Keyword Hook]
     S1 --> S2[Stage 2: Semantic Bootstrapping]
     S2 --> S3[Stage 3: Global KG Seeding & Topic Lock]
     S3 --> S4[Stage 4: Relational Graph Expansion]
-    S4 --> S5[Stage 5: 4-Way RRF Fusion & Supersession]
+    S4 --> S5[Stage 5: 5-Way RRF Fusion & Supersession]
     S5 --> Exp[Temporal Neighbor Expansion]
     Exp --> Out([Contextualized Ground-Truth Atoms])
 ```
 
 ---
 
-## The 5 Stages Explained
+## The Stages Explained
 
-### Stage 1: Parallel Semantic Hook
+### Stage 1: Parallel Semantic + Keyword Hook
 The query string is embedded into a dense vector (either locally via `SentenceTransformers` or through remote embedding APIs like Gemini or OpenAI).
 
 EpochDB issues concurrent queries to:
 - The **Hot Tier HNSW** in RAM.
+- The **Hot Tier KeywordIndex** (BM25 over atom text).
 - The **Probed Cold Tier Epoch Indexes** on disk (selected via recency, GEI matches, and epoch centroid proximity).
+- **Lexical cold scans** over the same probed epochs for exact-token / substring overlap.
 
-An oversampled candidate pool ($10 \times k$) is collected across both tiers to ensure deep recall.
+An oversampled candidate pool ($10 \times k$) is collected across both tiers to ensure deep recall. The keyword channel is especially useful for IDs, error codes, and exact names that embeddings often miss.
 
 ---
 
@@ -67,14 +69,16 @@ By adding these multi-hop neighboring atoms into the evaluation pool, EpochDB br
 
 ---
 
-### Stage 5: 4-Way RRF Fusion & Supersession
-This stage evaluates and ranks all candidates across four distinct mathematical signals using **Reciprocal Rank Fusion (RRF)**:
+### Stage 5: 5-Way RRF Fusion & Supersession
+This stage evaluates and ranks all candidates across five distinct mathematical signals using **Reciprocal Rank Fusion (RRF)**:
 
 | Ranking Signal | Weight | Mechanism | Description |
 | :--- | :---: | :--- | :--- |
 | **Semantic** | 3.0 | RRF Rank ($K=60$) | Proximity in embedding space. |
+| **Keyword** | 1.5 | BM25 / lexical overlap | Exact tokens, IDs, and phrase hits. |
 | **Recency** | 1.0 | Monotonic Order | Monotonically increasing epoch timestamps. |
 | **Entities** | 1.0 | Overlap Count | Density of entity intersections with the query. |
+| **Quantitative** | 2.0 | Intent match | Scalar / series alignment with numeric query intent. |
 | **Topic Lock** | Additive | **`+20.0` Boost** | Nuclear additive bonus for atoms matching verified query intent. |
 
 #### Supersession & Noise Demotion

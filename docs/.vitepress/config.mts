@@ -25,7 +25,7 @@ export default defineConfig({
       { text: 'Integrations', link: '/integrations/aster-framework' },
       { text: 'Examples', link: '/examples/basic-usage' },
       {
-        text: 'v1.10.0',
+        text: 'v1.11.0',
         items: [
           { text: 'Changelog', link: '/changelog' },
           { text: 'Benchmarks', link: '/guide/benchmarks' },
@@ -51,7 +51,7 @@ export default defineConfig({
           items: [
             { text: 'Architecture Overview', link: '/guide/architecture' },
             { text: 'Tiered Storage (Hot & Cold)', link: '/guide/tiered-storage' },
-            { text: '5-Stage Retrieval Pipeline', link: '/guide/retrieval-pipeline' },
+            { text: 'Retrieval Pipeline', link: '/guide/retrieval-pipeline' },
             { text: 'Atomic State & Supersession', link: '/guide/atomic-state-and-supersession' },
             { text: 'Knowledge Graph & GEI', link: '/guide/knowledge-graph' },
             { text: 'Skill Memory', link: '/guide/skill-memory' },
