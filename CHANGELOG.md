@@ -6,6 +6,10 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.11.1] - 2026-10-06
+### Fixed
+- **Cold keyword search**: `_row_to_atom` no longer raises `KeyError: 'embedding'` when `search_keyword` omits the embedding column. Missing embedding / created_at / access_count / epoch_id fall back to safe defaults; keyword scans still skip loading vectors.
+
 ## [1.11.0] - 2026-10-05
 ### Added
 - **Keyword / BM25 retrieval channel**: hot-tier inverted index (`KeywordIndex`) plus lexical cold-tier scans over probed epochs. Exact IDs, error codes, and names rank via a new RRF keyword signal (1.5× weight) fused with semantic, recency, entity, and quantitative ranks.
