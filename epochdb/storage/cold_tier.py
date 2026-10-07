@@ -368,21 +368,29 @@ class ColdTier:
             return []
 
     def _row_to_atom(self, row: dict) -> UnifiedMemoryAtom:
-        """Helper to convert a parquet row dict to UnifiedMemoryAtom."""
-        # Dequantize INT8 embedding
-        emb = np.array(row["embedding"], dtype=np.float32)
-        if "embedding_max" in row and row["embedding_max"] is not None:
-            emb = (emb / 127.0) * row["embedding_max"]
+        """Helper to convert a parquet row dict to UnifiedMemoryAtom.
+
+        Embedding (and some scalar columns) may be omitted by column-pruned
+        readers such as ``search_keyword`` — fill safe defaults so lexical
+        hits still reconstruct as atoms.
+        """
+        # Dequantize INT8 embedding when present; keyword scans skip it.
+        if "embedding" in row and row["embedding"] is not None:
+            emb = np.array(row["embedding"], dtype=np.float32)
+            if row.get("embedding_max") is not None:
+                emb = (emb / 127.0) * row["embedding_max"]
+        else:
+            emb = np.array([], dtype=np.float32)
 
         ptype_str = row.get("payload_type", "text")
         ptype = PayloadType(ptype_str)
-        payload = row["payload"]
+        payload = row.get("payload")
+        created_at = float(row["created_at"]) if row.get("created_at") is not None else 0.0
 
         # Restore triples
         triples = []
         if "triples" in row and row["triples"] is not None:
             try:
-                import json
                 triples = json.loads(row["triples"])
             except json.JSONDecodeError:
                 pass
@@ -394,7 +402,7 @@ class ColdTier:
                 unit=row["scalar_unit"],
                 uncertainty_low=row.get("scalar_uncertainty_low", 0.0),
                 uncertainty_high=row.get("scalar_uncertainty_high", 0.0),
-                timestamp=row["created_at"]
+                timestamp=created_at,
             )
         elif ptype == PayloadType.SERIES:
             points = []
@@ -415,14 +423,14 @@ class ColdTier:
         elif ptype == PayloadType.CONSTRAINT:
             try:
                 expr = json.loads(row["constraint_expr"])
-            except:
+            except Exception:
                 expr = {}
             payload = ConstraintPayload(expression=expr)
         else:
             try:
                 payload = json.loads(row["payload"])
             except (json.JSONDecodeError, TypeError):
-                payload = row["payload"]
+                payload = row.get("payload")
 
         # Restore metadata
         metadata = {}
@@ -448,9 +456,9 @@ class ColdTier:
             payload_type=ptype,
             embedding=emb,
             triples=triples,
-            created_at=row["created_at"],
-            access_count=row["access_count"],
-            epoch_id=row["epoch_id"],
+            created_at=created_at,
+            access_count=int(row["access_count"] or 0) if row.get("access_count") is not None else 0,
+            epoch_id=row.get("epoch_id") or "active",
             metadata=metadata,
             memory_type=memory_type,
         )
@@ -499,7 +507,17 @@ class ColdTier:
                 continue
             try:
                 schema = pq.read_schema(file_path)
-                columns = ["id", "payload", "payload_type", "metadata"]
+                # Skip embedding on purpose — lexical scoring only needs text.
+                columns = [
+                    "id",
+                    "payload",
+                    "payload_type",
+                    "metadata",
+                    "created_at",
+                    "access_count",
+                    "epoch_id",
+                ]
+                columns = [c for c in columns if c in schema.names]
                 if "memory_type" in schema.names:
                     columns.append("memory_type")
                 table = pq.read_table(file_path, columns=columns)
