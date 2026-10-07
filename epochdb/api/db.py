@@ -1025,6 +1025,21 @@ class AsyncEpochDB:
         db = await self._get_db()
         return await asyncio.to_thread(db.add_memory, payload, embedding, triples, atom_id)
 
+    async def replace_memory(
+        self,
+        atom_id: str,
+        payload: Any,
+        embedding: np.ndarray,
+        triples: Optional[List[tuple]] = None,
+        metadata: Optional[dict] = None,
+    ) -> str:
+        """Replace an existing atom in-place (durable update for reused atom ids)."""
+        import asyncio
+        db = await self._get_db()
+        return await asyncio.to_thread(
+            db.replace_memory, atom_id, payload, embedding, triples or [], metadata
+        )
+
     async def recall(self, query_emb: np.ndarray, top_k: int = 5, expand_hops: int = 1, query_entities: Optional[List[str]] = None, cold_search_mode: Optional[str] = None) -> List[Any]:
         import asyncio
         db = await self._get_db()
