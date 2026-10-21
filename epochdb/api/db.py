@@ -123,9 +123,16 @@ class Entity(str):
 
 class Graph:
     """Represents a segment of the Global Entity Index graph."""
-    def __init__(self, nodes: List[str], edges: List[Dict[str, Any]]):
+    def __init__(
+        self,
+        nodes: List[Any],
+        edges: List[Dict[str, Any]],
+        node_types: Optional[Dict[str, List[str]]] = None,
+    ):
+        # nodes may be bare strings (legacy) or {id, types} dicts when typed
         self.nodes = nodes
         self.edges = edges
+        self.node_types = node_types or {}
 
     def __repr__(self):
         return f"Graph(nodes={len(self.nodes)}, edges={len(self.edges)})"
@@ -589,11 +596,17 @@ class EpochDB(EngineEpochDB):
         return Entity(entity_id, self)
 
     def entity_graph(self, entity_id: str, depth: int = 2) -> Graph:
-        """Construct the relational graph around an entity."""
+        """Construct the relational graph around an entity (nodes include discovered types)."""
+        type_preds = {
+            "is_a", "type", "entity_type", "has_type", "category",
+            "role", "holds_role", "classified_as", "subclass_of",
+            "instance_of", "kind_of",
+        }
         with self._internal_lock:
             nodes = set()
             edges = []
             visited = set()
+            node_types: Dict[str, set] = {}
             queue = [(entity_id, 0)]
 
             while queue:
@@ -613,6 +626,9 @@ class EpochDB(EngineEpochDB):
                             edges.append(edge)
                         nodes.add(s)
                         nodes.add(o)
+                        pred_n = str(p).lower().replace(" ", "_")
+                        if pred_n in type_preds and o:
+                            node_types.setdefault(str(s), set()).add(str(o))
 
                 if curr_depth < depth:
                     neighbors = self.kg_manager.get_neighbors(curr_ent)
@@ -620,7 +636,12 @@ class EpochDB(EngineEpochDB):
                         if n not in visited:
                             queue.append((n, curr_depth + 1))
 
-            return Graph(nodes=list(nodes), edges=edges)
+            # Keep nodes as strings for API/hash-set compatibility; types ride alongside.
+            return Graph(
+                nodes=list(nodes),
+                edges=edges,
+                node_types={k: sorted(v) for k, v in node_types.items()},
+            )
 
     def compact(self):
         """Trigger deduplication and compaction in the Cold Tier."""
