@@ -6,6 +6,13 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.12.0] - 2026-10-21
+### Added
+- **Open-vocab type discovery**: `get_discovered_types()` scans hot + cold triples for type-defining predicates (`is_a`, `type`, `holds_role`, `instance_of`, etc.) and returns sorted `types`, `predicates`, and per-entity `entity_types` — no fixed ontology registry.
+- **Typed entity graphs**: `Graph` carries optional `node_types`; `entity_graph()` collects discovered types for nodes in the traversed neighbourhood.
+### Fixed
+- **Predicate vocabulary after restart**: `_rebuild_predicates()` restores `self.predicates` from durable hot and cold triples on startup (previously only accumulated during the process lifetime).
+
 ## [1.11.1] - 2026-10-06
 ### Fixed
 - **Cold keyword search**: `_row_to_atom` no longer raises `KeyError: 'embedding'` when `search_keyword` omits the embedding column. Missing embedding / created_at / access_count / epoch_id fall back to safe defaults; keyword scans still skip loading vectors.

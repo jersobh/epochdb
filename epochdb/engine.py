@@ -162,6 +162,101 @@ class EpochDB:
         # --- WAL Replay (Crash Recovery) ---
         self._replay_wal()
 
+        # Rebuild in-memory predicate vocabulary from durable triples
+        # (predicates were previously only accumulated during the process lifetime).
+        self._rebuild_predicates()
+
+    def _rebuild_predicates(self) -> None:
+        """Restore ``self.predicates`` from hot + cold triples after restart."""
+        found: Set[str] = set()
+
+        for atom in self.hot_tier.atoms.values():
+            for _s, pred, _o in getattr(atom, "triples", None) or []:
+                if pred:
+                    found.add(str(pred))
+
+        try:
+            import pyarrow.parquet as pq
+
+            for epoch_id in self.cold_tier.get_all_epochs():
+                file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
+                if not os.path.exists(file_path):
+                    continue
+                try:
+                    table = pq.read_table(file_path, columns=["triples"])
+                    for raw in table["triples"].to_pylist():
+                        if not raw:
+                            continue
+                        try:
+                            triples = json.loads(raw) if isinstance(raw, str) else raw
+                        except Exception:
+                            continue
+                        for triple in triples or []:
+                            if isinstance(triple, (list, tuple)) and len(triple) >= 2:
+                                pred = triple[1]
+                                if pred:
+                                    found.add(str(pred))
+                except Exception as e:
+                    logger.debug(f"Predicate rebuild skip {epoch_id}: {e}")
+        except Exception as e:
+            logger.debug(f"Predicate rebuild cold scan unavailable: {e}")
+
+        self.predicates.update(found)
+        if found:
+            logger.info(f"Rebuilt {len(found)} predicates from stored triples.")
+
+    def get_discovered_types(self) -> Dict[str, Any]:
+        """
+        Union of type objects and type-defining predicates discovered in store.
+        Used by clients (e.g. Percepta) for open-vocab filters — no enum registry.
+        """
+        type_preds = {
+            "is_a", "type", "entity_type", "has_type", "category",
+            "role", "holds_role", "classified_as", "subclass_of",
+            "instance_of", "kind_of",
+        }
+        types: Set[str] = set()
+        entity_types: Dict[str, Set[str]] = {}
+
+        def _consume(triples):
+            for triple in triples or []:
+                if not isinstance(triple, (list, tuple)) or len(triple) < 3:
+                    continue
+                s, p, o = triple[0], str(triple[1]), triple[2]
+                if str(p).lower().replace(" ", "_") in type_preds and o:
+                    types.add(str(o))
+                    entity_types.setdefault(str(s), set()).add(str(o))
+
+        for atom in self.hot_tier.atoms.values():
+            _consume(getattr(atom, "triples", None))
+
+        try:
+            import pyarrow.parquet as pq
+            for epoch_id in self.cold_tier.get_all_epochs():
+                file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
+                if not os.path.exists(file_path):
+                    continue
+                try:
+                    table = pq.read_table(file_path, columns=["triples"])
+                    for raw in table["triples"].to_pylist():
+                        if not raw:
+                            continue
+                        try:
+                            triples = json.loads(raw) if isinstance(raw, str) else raw
+                        except Exception:
+                            continue
+                        _consume(triples)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        return {
+            "types": sorted(types),
+            "predicates": sorted(self.predicates),
+            "entity_types": {k: sorted(v) for k, v in entity_types.items()},
+        }
+
     def get_total_atoms(self) -> int:
         """Returns the total number of atoms across both hot and cold tiers."""
         with self._internal_lock:
