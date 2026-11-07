@@ -634,9 +634,20 @@ class ColdTier:
                 pruned_ids.append(atom.id)
                 continue
                 
+            NON_SUPERSEDING_PREDICATES = {
+                "co_occurs_with", "mentions", "associated_with", "related_to",
+                "tagged_with", "has_tag", "contains", "part_of", "member_of",
+                "founded", "co_founded", "created", "invented", "designed",
+                "mentored", "worked_at", "attended", "developed", "pioneered",
+                "authored", "discovered", "produced", "competes_with",
+            }
+
             is_superseded = False
             for s, p, o in atom.triples:
-                state_key = (str(s).lower(), str(p).lower())
+                p_l = str(p).lower()
+                if p_l in NON_SUPERSEDING_PREDICATES:
+                    continue
+                state_key = (str(s).lower(), p_l)
                 if state_key in active_states:
                     active_atom = active_states[state_key]
                     if atom.payload_type == PayloadType.SCALAR and active_atom.payload_type == PayloadType.SCALAR:

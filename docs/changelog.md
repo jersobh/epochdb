@@ -6,6 +6,29 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.13.0] - 2026-11-07
+### Added
+- **Dynamic CausalLM & GLiNER Fact Extraction**:
+  - Integrated zero-shot entity extraction with native support for GLiNER (`gliner_uni_encoder_span`) and HuggingFace CausalLM architectures.
+  - Implemented resilient literal evaluation (`ast.literal_eval`), regex, and JSON parsing for robust triplet extraction across various LLM outputs.
+  - Added dynamic model swapping at runtime via `set_extraction_model()` and lazy-loaded extractor caching.
+- **Hierarchical Multi-Level Scoping**:
+  - Normalized `tenant` and `namespace` resolution to strip leading and trailing slashes, preventing directory collision and path traversal issues in `os.path.join`.
+  - Safely isolates arbitrary nested partition depths (e.g. `tenant/dealer-group/dealer/store`).
+- **Non-Superseding Predicates Guard**:
+  - Explicitly exempted associative, co-occurrence, and biographical/employment predicates (`works_at`, `mentions`, `co_occurs_with`, `part_of`, `member_of`, `founded`, `created`, `attended`, etc.) from being overwritten as single-state scalar facts during multi-hop retrieval and cold tier compaction.
+- **Score Retention in Recalled Memories**:
+  - Retained cosine and RRF retrieval scores directly on `UnifiedMemoryAtom.score` and mapped to `Memory.score` on retrieval and multi-hop queries.
+  - Added dimension mismatch resilience for vector scoring when comparing vectors with differing dimensions.
+
+### Fixed
+- **SQLite Concurrency & Lock Resilience**:
+  - Increased KG manager SQLite `busy_timeout` to 60,000ms (60s).
+  - Enabled WAL autocheckpoints (`PRAGMA wal_autocheckpoint = 1000`) for high-write workloads.
+  - Wrapped KG associations indexing (`add_association`, `add_associations_batch`, `remove_associations`) in a 5-attempt retry loop with exponential backoff on `database is locked`.
+- **Vectorized Batch Atom ID Retention**:
+  - Ensured `remember_batch()` properly preserves caller-supplied `id` and `atom_id` across vectorized embeddings instead of generating redundant random UUIDs.
+
 ## [1.12.0] - 2026-10-21
 ### Added
 - **Open-vocab type discovery**: `get_discovered_types()` scans hot + cold triples for type-defining predicates (`is_a`, `type`, `holds_role`, `instance_of`, etc.) and returns sorted `types`, `predicates`, and per-entity `entity_types` — no fixed ontology registry.

@@ -23,6 +23,129 @@ logger = logging.getLogger(__name__)
 _KG_FLUSH_INTERVAL = 50
 
 
+class EpochEmbedderAdapter:
+    """
+    Adapter for SentenceTransformer and other embedding models.
+    Enforces:
+    1. Instruction Prefix for inference/query vs document passages (e.g. Qwen3-Embedding).
+    2. EOS / Last-token pooling verification for causal decoder-only models.
+    3. Matryoshka dimension truncation and L2 re-normalization.
+    """
+    def __init__(self, model: Any, dim: int, model_name: str = ""):
+        self.model = model
+        self.dim = dim
+        self.model_name = model_name
+        self._verify_pooling()
+
+    def _verify_pooling(self):
+        """Verify and enforce last-token pooling for causal decoder-only architectures."""
+        try:
+            modules = getattr(self.model, "_modules", {})
+            for mod in modules.values():
+                if mod.__class__.__name__ == "Pooling" or hasattr(mod, "pooling_mode"):
+                    current_mode = getattr(mod, "pooling_mode", None)
+                    is_causal = False
+                    for m in modules.values():
+                        auto_mod = getattr(m, "auto_model", None)
+                        arch = getattr(auto_mod, "config", None)
+                        if arch:
+                            arch_str = str(getattr(arch, "architectures", "")).lower()
+                            model_type = str(getattr(arch, "model_type", "")).lower()
+                            if getattr(arch, "is_decoder", False) or "causal" in arch_str or "qwen" in model_type or "llama" in model_type:
+                                is_causal = True
+                                break
+                    if not is_causal and any(k in self.model_name.lower() for k in ["qwen", "epochdb-embed"]):
+                        is_causal = True
+
+                    if is_causal and current_mode != "lasttoken":
+                        logger.warning(
+                            f"[EpochEmbedderAdapter] Causal decoder model detected with pooling_mode='{current_mode}'. "
+                            f"Enforcing 'lasttoken' pooling for correct semantic similarity."
+                        )
+                        if hasattr(mod, "pooling_mode"):
+                            mod.pooling_mode = "lasttoken"
+                        if hasattr(mod, "pooling_mode_lasttoken"):
+                            mod.pooling_mode_lasttoken = True
+                        if hasattr(mod, "pooling_mode_mean_tokens"):
+                            mod.pooling_mode_mean_tokens = False
+        except Exception as e:
+            logger.debug(f"[EpochEmbedderAdapter] Could not check pooling: {e}")
+
+    def _get_query_prompt_kwargs(self) -> dict:
+        custom_inst = os.getenv("EPOCHDB_QUERY_INSTRUCTION")
+        if custom_inst:
+            if not custom_inst.endswith("Query: ") and not custom_inst.endswith("Query:"):
+                custom_inst = f"{custom_inst.rstrip()}\nQuery: "
+            return {"prompt": custom_inst}
+        prompts = getattr(self.model, "prompts", None)
+        if isinstance(prompts, dict) and "query" in prompts:
+            return {"prompt_name": "query"}
+        model_id = str(getattr(self.model, "model_name_or_path", "") or self.model_name).lower()
+        if any(k in model_id for k in ["qwen", "epochdb-embed", "bge-", "e5-"]):
+            return {"prompt": "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: "}
+        return {}
+
+    def encode(
+        self,
+        text: Union[str, List[str]],
+        is_query: bool = False,
+        prompt_name: Optional[str] = None,
+        prompt: Optional[str] = None,
+        truncate_dim: Optional[int] = None,
+        normalize_embeddings: bool = True,
+        **kwargs
+    ) -> np.ndarray:
+        target_dim = truncate_dim or self.dim
+        dim_fn = getattr(self.model, "get_embedding_dimension", None) or getattr(self.model, "get_sentence_embedding_dimension", None)
+        native_dim = dim_fn() if callable(dim_fn) else None
+
+        encode_kwargs = dict(kwargs)
+        encode_kwargs["normalize_embeddings"] = normalize_embeddings
+
+        if prompt is not None:
+            encode_kwargs["prompt"] = prompt
+        elif prompt_name is not None:
+            encode_kwargs["prompt_name"] = prompt_name
+        elif is_query:
+            encode_kwargs.update(self._get_query_prompt_kwargs())
+        else:
+            prompts = getattr(self.model, "prompts", None)
+            if isinstance(prompts, dict) and prompts.get("document"):
+                encode_kwargs["prompt_name"] = "document"
+
+        # Apply Matryoshka truncation if target_dim < native_dim
+        if target_dim and native_dim and target_dim < native_dim:
+            encode_kwargs["truncate_dim"] = target_dim
+
+        try:
+            res = self.model.encode(text, **encode_kwargs)
+        except TypeError:
+            encode_kwargs.pop("truncate_dim", None)
+            encode_kwargs.pop("prompt_name", None)
+            encode_kwargs.pop("prompt", None)
+            res = self.model.encode(text, **encode_kwargs)
+
+        def _post_process(vec):
+            v = np.array(vec, dtype=np.float32)
+            if target_dim and len(v) > target_dim:
+                v = v[:target_dim]
+            if normalize_embeddings:
+                norm = np.linalg.norm(v)
+                if norm > 1e-10:
+                    v = v / norm
+            return v
+
+        if isinstance(text, str):
+            return _post_process(res)
+        return np.array([_post_process(v) for v in res], dtype=np.float32)
+
+    def encode_batch(self, texts: List[str], is_query: bool = False, **kwargs) -> np.ndarray:
+        return self.encode(texts, is_query=is_query, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self.model, name)
+
+
 class EpochDB:
     """
     The main client for the EpochDB Agentic Memory Engine.
@@ -75,11 +198,13 @@ class EpochDB:
 
         # Physical partition for tenant isolation
         if self.tenant:
-            storage_dir = os.path.join(storage_dir, "tenants", self.tenant)
+            clean_tenant = str(self.tenant).strip("/")
+            storage_dir = os.path.join(storage_dir, "tenants", clean_tenant)
 
-        # Namespace subdirectory within the tenant
+        # Namespace subdirectory within the tenant (supports multi-level hierarchies like dealer-group/dealer)
         if self.namespace:
-            storage_dir = os.path.join(storage_dir, "ns", self.namespace)
+            clean_ns = str(self.namespace).strip("/")
+            storage_dir = os.path.join(storage_dir, "ns", clean_ns)
 
         self.storage_dir = os.path.abspath(storage_dir)
         self.dim = dim
@@ -813,14 +938,15 @@ class EpochDB:
                 else:
                     cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "epochdb_models", safe_model_name)
                 if os.path.exists(cache_dir):
-                    self._embedder = SentenceTransformer(cache_dir)
+                    raw_embedder = SentenceTransformer(cache_dir)
                 else:
-                    self._embedder = SentenceTransformer(normalized_model_name)
+                    raw_embedder = SentenceTransformer(normalized_model_name)
                     try:
                         os.makedirs(os.path.dirname(cache_dir), exist_ok=True)
-                        self._embedder.save(cache_dir)
+                        raw_embedder.save(cache_dir)
                     except Exception as e:
                         logger.warning(f"Could not save local model cache to {cache_dir}: {e}")
+                self._embedder = EpochEmbedderAdapter(raw_embedder, dim=self.dim, model_name=normalized_model_name)
         return self._embedder
 
     def remember(
@@ -845,7 +971,7 @@ class EpochDB:
         schedule_async = False
         with self._internal_lock:
             embedder = self._get_embedder()
-            emb = embedder.encode(text, normalize_embeddings=True)
+            emb = embedder.encode(text, is_query=False, normalize_embeddings=True)
             if triples is None and metadata is not None:
                 triples = metadata.get("triples")
 
@@ -946,7 +1072,7 @@ class EpochDB:
             query_entities = self.extract_entities(query)
             
         embedder = self._get_embedder()
-        emb_list = embedder.encode(query, normalize_embeddings=True)
+        emb_list = embedder.encode(query, is_query=True, normalize_embeddings=True)
         emb = np.array(emb_list, dtype=np.float32)
 
         with self._internal_lock:

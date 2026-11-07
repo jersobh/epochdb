@@ -129,17 +129,26 @@ class EpochDBVectorStore(VectorStore):
         results = []
         if sync_db._model_name:
             embedder = sync_db._get_embedder()
-            query_emb = np.array(embedder.encode(query, normalize_embeddings=True), dtype=np.float32)
+            query_emb = np.array(embedder.encode(query, is_query=True, normalize_embeddings=True), dtype=np.float32)
             
             for m in memories:
                 atom = getattr(m, "_atom", None)
                 score = 0.0
                 if atom and query_emb.any() and atom.embedding.any():
-                    score = float(
-                        np.dot(atom.embedding, query_emb) / (
-                            np.linalg.norm(atom.embedding) * np.linalg.norm(query_emb) + 1e-10
+                    atom_emb = atom.embedding
+                    if len(atom_emb) != len(query_emb):
+                        min_len = min(len(atom_emb), len(query_emb))
+                        score = float(
+                            np.dot(atom_emb[:min_len], query_emb[:min_len]) / (
+                                np.linalg.norm(atom_emb[:min_len]) * np.linalg.norm(query_emb[:min_len]) + 1e-10
+                            )
                         )
-                    )
+                    else:
+                        score = float(
+                            np.dot(atom_emb, query_emb) / (
+                                np.linalg.norm(atom_emb) * np.linalg.norm(query_emb) + 1e-10
+                            )
+                        )
                 doc = Document(
                     page_content=m.text,
                     metadata={**m.metadata, "id": m.id, "created_at": m.created_at}
