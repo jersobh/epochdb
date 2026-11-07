@@ -25,7 +25,8 @@ class KGManager:
             cursor = self._conn.cursor()
             cursor.execute("PRAGMA journal_mode = WAL")
             cursor.execute("PRAGMA synchronous = NORMAL")
-            cursor.execute("PRAGMA busy_timeout = 5000")
+            cursor.execute("PRAGMA busy_timeout = 60000")
+            cursor.execute("PRAGMA wal_autocheckpoint = 1000")
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS kg_index (
                     entity TEXT,
@@ -40,31 +41,50 @@ class KGManager:
             self._conn.commit()
 
     def add_association(self, entity: str, atom_id: str, epoch_id: str):
-        """Add an entity -> [atom_id, epoch_id] association."""
+        """Add an entity -> [atom_id, epoch_id] association with retry resilience."""
         with self._lock:
-            try:
-                cursor = self._conn.cursor()
-                cursor.execute(
-                    "INSERT OR IGNORE INTO kg_index (entity, atom_id, epoch_id) VALUES (?, ?, ?)",
-                    (entity, atom_id, epoch_id)
-                )
-            except Exception as e:
-                logger.error(f"Failed to add association to SQLite KG: {e}")
+            for attempt in range(5):
+                try:
+                    cursor = self._conn.cursor()
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO kg_index (entity, atom_id, epoch_id) VALUES (?, ?, ?)",
+                        (entity, atom_id, epoch_id)
+                    )
+                    self._conn.commit()
+                    return
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e).lower() and attempt < 4:
+                        time.sleep(0.01 * (2 ** attempt))
+                        continue
+                    logger.error(f"Failed to add association to SQLite KG: {e}")
+                    break
+                except Exception as e:
+                    logger.error(f"Failed to add association to SQLite KG: {e}")
+                    break
 
     def add_associations_batch(self, associations: List[Tuple[str, str, str]]):
-        """Bulk add associations."""
+        """Bulk add associations with lock-retry resilience."""
         if not associations:
             return
         with self._lock:
-            try:
-                cursor = self._conn.cursor()
-                cursor.executemany(
-                    "INSERT OR IGNORE INTO kg_index (entity, atom_id, epoch_id) VALUES (?, ?, ?)",
-                    associations
-                )
-                self._conn.commit()
-            except Exception as e:
-                logger.error(f"Failed to batch add associations to SQLite KG: {e}")
+            for attempt in range(5):
+                try:
+                    cursor = self._conn.cursor()
+                    cursor.executemany(
+                        "INSERT OR IGNORE INTO kg_index (entity, atom_id, epoch_id) VALUES (?, ?, ?)",
+                        associations
+                    )
+                    self._conn.commit()
+                    return
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e).lower() and attempt < 4:
+                        time.sleep(0.02 * (2 ** attempt))
+                        continue
+                    logger.error(f"Failed to batch add associations to SQLite KG (attempt {attempt + 1}): {e}")
+                    break
+                except Exception as e:
+                    logger.error(f"Failed to batch add associations to SQLite KG: {e}")
+                    break
 
     def get_associations(self, entity: str, limit: Optional[int] = None) -> List[List[str]]:
         """Retrieve [atom_id, epoch_id] pairs for a given entity.
@@ -319,22 +339,31 @@ class KGManager:
                 return []
 
     def remove_associations(self, atom_ids: List[str]):
-        """Remove associations for deleted/superseded atoms."""
+        """Remove associations for deleted/superseded atoms with lock retry."""
         if not atom_ids:
             return
         with self._lock:
-            try:
-                cursor = self._conn.cursor()
-                for i in range(0, len(atom_ids), 500):
-                    chunk = atom_ids[i:i+500]
-                    placeholders = ",".join("?" for _ in chunk)
-                    cursor.execute(
-                        f"DELETE FROM kg_index WHERE atom_id IN ({placeholders})",
-                        chunk
-                    )
-                self._conn.commit()
-            except Exception as e:
-                logger.error(f"Failed to remove associations from SQLite KG: {e}")
+            for attempt in range(5):
+                try:
+                    cursor = self._conn.cursor()
+                    for i in range(0, len(atom_ids), 500):
+                        chunk = atom_ids[i:i+500]
+                        placeholders = ",".join("?" for _ in chunk)
+                        cursor.execute(
+                            f"DELETE FROM kg_index WHERE atom_id IN ({placeholders})",
+                            chunk
+                        )
+                    self._conn.commit()
+                    return
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e).lower() and attempt < 4:
+                        time.sleep(0.02 * (2 ** attempt))
+                        continue
+                    logger.error(f"Failed to remove associations from SQLite KG: {e}")
+                    break
+                except Exception as e:
+                    logger.error(f"Failed to remove associations from SQLite KG: {e}")
+                    break
 
     def update_epoch_ids(self, old_epochs: List[str], new_epoch_id: str):
         """Update epoch_id for relocated atoms during compaction."""

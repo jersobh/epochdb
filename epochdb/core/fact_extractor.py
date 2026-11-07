@@ -16,6 +16,7 @@ Environment overrides: ``EPOCHDB_EXTRACTION_MODEL``, ``GEMINI_MODEL``.
 from __future__ import annotations
 
 import json
+import ast
 import logging
 import os
 import re
@@ -307,8 +308,15 @@ def _parse_jsonish_triples(text: str) -> List[Tuple[str, str, str]]:
             return _normalize_triples(data.get("triples") or data.get("relations") or [])
         if isinstance(data, list):
             return _normalize_triples(data)
-    except json.JSONDecodeError:
-        pass
+    except Exception:
+        try:
+            data = ast.literal_eval(candidate.strip())
+            if isinstance(data, dict):
+                return _normalize_triples(data.get("triples") or data.get("relations") or [])
+            if isinstance(data, list):
+                return _normalize_triples(data)
+        except Exception:
+            pass
 
     # Find embedded JSON object/array
     for match in re.finditer(r"(\{.*\}|\[.*\])", text, re.DOTALL):
@@ -320,8 +328,17 @@ def _parse_jsonish_triples(text: str) -> List[Tuple[str, str, str]]:
                 got = _normalize_triples(data)
             if got:
                 return got
-        except json.JSONDecodeError:
-            continue
+        except Exception:
+            try:
+                data = ast.literal_eval(match.group(1).strip())
+                if isinstance(data, dict):
+                    got = _normalize_triples(data.get("triples") or data.get("relations") or [])
+                else:
+                    got = _normalize_triples(data)
+                if got:
+                    return got
+            except Exception:
+                continue
 
     # Lines like: (Alice, works_at, Acme) or Alice | works_at | Acme
     out = []
@@ -378,7 +395,17 @@ class HuggingFaceFactExtractor:
         load_id = cache_dir if cache_dir and os.path.isdir(cache_dir) and os.listdir(cache_dir) else self.model_id
         logger.info(f"Loading HuggingFace extraction model: {load_id}")
         self._tokenizer = AutoTokenizer.from_pretrained(load_id)
-        self._model = AutoModelForSeq2SeqLM.from_pretrained(load_id)
+        try:
+            self._model = AutoModelForSeq2SeqLM.from_pretrained(load_id)
+            self._is_causal = False
+        except (ValueError, KeyError):
+            import torch
+            from transformers import AutoModelForCausalLM
+            self._model = AutoModelForCausalLM.from_pretrained(
+                load_id,
+                dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            )
+            self._is_causal = True
         self._model.eval()
 
         # Persist a local copy for faster subsequent startups (best-effort)
@@ -424,14 +451,28 @@ class HuggingFaceFactExtractor:
                 return_tensors="pt",
             )
 
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self._model.to(device)
+        inputs = {k: v.to(device) for k, v in inputs.items()}
         with torch.no_grad():
-            generated = self._model.generate(
-                **inputs,
-                max_length=self.max_length,
-                num_beams=3,
-                num_return_sequences=1,
-            )
-        decoded = self._tokenizer.batch_decode(generated, skip_special_tokens=not self._is_rebel)[0]
+            if getattr(self, "_is_causal", False):
+                generated = self._model.generate(
+                    **inputs,
+                    max_new_tokens=self.max_length,
+                    do_sample=False,
+                )
+                decoded = self._tokenizer.batch_decode(
+                    generated[:, inputs["input_ids"].shape[1]:],
+                    skip_special_tokens=True,
+                )[0]
+            else:
+                generated = self._model.generate(
+                    **inputs,
+                    max_length=self.max_length,
+                    num_beams=3,
+                    num_return_sequences=1,
+                )
+                decoded = self._tokenizer.batch_decode(generated, skip_special_tokens=not self._is_rebel)[0]
 
         if self._is_rebel:
             # Keep special tokens for REBEL parse

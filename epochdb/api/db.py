@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class Memory:
     """Rich Memory object representing a stored memory atom."""
-    def __init__(self, atom: UnifiedMemoryAtom):
+    def __init__(self, atom: UnifiedMemoryAtom, score: float = 0.0):
         self.id = atom.id
         if isinstance(atom.payload, str):
             self.text = atom.payload
@@ -29,6 +29,7 @@ class Memory:
         self.payload_type = atom.payload_type.value if atom.payload_type else "text"
         self.memory_type = atom.memory_type.value if atom.memory_type else "general"
         self.namespace = atom.namespace
+        self.score = float(getattr(atom, "score", score))
         self._atom = atom
 
 def _build_pairwise_triples(extracted: list) -> list:
@@ -210,7 +211,7 @@ class EpochDB(EngineEpochDB):
         with self._internal_lock:
             if self._model_name:
                 embedder = self._get_embedder()
-                emb = embedder.encode(text, normalize_embeddings=True)
+                emb = embedder.encode(text, is_query=False, normalize_embeddings=True)
                 embedding = np.array(emb, dtype=np.float32)
             else:
                 embedding = np.zeros(self.dim, dtype=np.float32)
@@ -280,7 +281,7 @@ class EpochDB(EngineEpochDB):
 
             if self._model_name:
                 embedder = self._get_embedder()
-                emb = embedder.encode(text, normalize_embeddings=True)
+                emb = embedder.encode(text, is_query=False, normalize_embeddings=True)
                 embedding = np.array(emb, dtype=np.float32)
             else:
                 embedding = np.zeros(self.dim, dtype=np.float32)
@@ -363,11 +364,13 @@ class EpochDB(EngineEpochDB):
                 elif getattr(self, "auto_extract", False):
                     metadata["extraction_status"] = "done"
 
+                item_dict = items[i] if isinstance(items[i], dict) else {}
                 batch_items.append({
                     "payload": text,
                     "embedding": embs[i],
                     "triples": triples,
                     "metadata": metadata,
+                    "atom_id": item_dict.get("id") or item_dict.get("atom_id"),
                 })
                 resolved_list.append(triples)
                 meta_list.append(metadata)
@@ -494,7 +497,7 @@ class EpochDB(EngineEpochDB):
         query_entities = [str(e) for e in self.extract_entities(text)]
         if self._model_name:
             embedder = self._get_embedder()
-            emb = np.array(embedder.encode(text, normalize_embeddings=True), dtype=np.float32)
+            emb = np.array(embedder.encode(text, is_query=True, normalize_embeddings=True), dtype=np.float32)
         else:
             emb = np.zeros(self.dim, dtype=np.float32)
 
@@ -522,11 +525,19 @@ class EpochDB(EngineEpochDB):
                     continue
                 score = 0.0
                 if emb.any() and atom.embedding.any():
-                    score = np.dot(atom.embedding, emb) / (
-                        np.linalg.norm(atom.embedding) * np.linalg.norm(emb) + 1e-10
-                    )
+                    if len(atom.embedding) != len(emb):
+                        min_len = min(len(atom.embedding), len(emb))
+                        score = float(np.dot(atom.embedding[:min_len], emb[:min_len]) / (
+                            np.linalg.norm(atom.embedding[:min_len]) * np.linalg.norm(emb[:min_len]) + 1e-10
+                        ))
+                    else:
+                        score = float(np.dot(atom.embedding, emb) / (
+                            np.linalg.norm(atom.embedding) * np.linalg.norm(emb) + 1e-10
+                        ))
+                elif hasattr(atom, "score"):
+                    score = float(atom.score)
                 if score >= min_score:
-                    memories.append(Memory(atom))
+                    memories.append(Memory(atom, score=score))
             return memories
 
     def multi_hop(self, text: str, hops: int = 2, k: int = 5, filters: Optional[dict] = None, context_window: int = 0, cold_search_mode: Optional[str] = None) -> List[Memory]:
@@ -534,7 +545,7 @@ class EpochDB(EngineEpochDB):
         query_entities = [str(e) for e in self.extract_entities(text)]
         if self._model_name:
             embedder = self._get_embedder()
-            emb = np.array(embedder.encode(text, normalize_embeddings=True), dtype=np.float32)
+            emb = np.array(embedder.encode(text, is_query=True, normalize_embeddings=True), dtype=np.float32)
         else:
             emb = np.zeros(self.dim, dtype=np.float32)
 
