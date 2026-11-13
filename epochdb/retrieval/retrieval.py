@@ -17,8 +17,63 @@ from epochdb.retrieval.epoch_probe import (
     plan_epoch_search,
 )
 from epochdb.retrieval.quantitative_index import ScalarIndex
+from epochdb.retrieval.precision_rerank import (
+    content_tokens,
+    lexical_precision,
+    rerank as precision_rerank,
+)
+from epochdb.retrieval.query_decompose import decompose_query, focus_query
 
 logger = logging.getLogger(__name__)
+
+
+def _mmr_select(
+    ranked: List[Tuple[Any, float]],
+    top_k: int,
+    relevance_lambda: float = 0.7,
+) -> List[Tuple[Any, float]]:
+    """
+    Maximal Marginal Relevance over already-scored candidates.
+
+    Relevance = precision score; diversity = Jaccard distance of content tokens.
+    Keeps small top_k from being filled by near-duplicate turns.
+    """
+    if not ranked or top_k <= 0:
+        return []
+    if len(ranked) <= top_k:
+        return list(ranked)
+
+    token_cache: Dict[int, set] = {}
+
+    def toks(atom) -> set:
+        key = id(atom)
+        if key not in token_cache:
+            token_cache[key] = set(content_tokens(str(getattr(atom, "payload", atom))))
+        return token_cache[key]
+
+    def jaccard_sim(a, b) -> float:
+        ta, tb = toks(a), toks(b)
+        if not ta or not tb:
+            return 0.0
+        inter = len(ta & tb)
+        return inter / len(ta | tb) if inter else 0.0
+
+    selected: List[Tuple[Any, float]] = []
+    remaining = list(ranked)
+    while remaining and len(selected) < top_k:
+        best_i = 0
+        best_val = float("-inf")
+        for i, (atom, rel) in enumerate(remaining):
+            if not selected:
+                val = rel
+            else:
+                max_sim = max(jaccard_sim(atom, s[0]) for s in selected)
+                val = relevance_lambda * rel - (1.0 - relevance_lambda) * max_sim
+            if val > best_val:
+                best_val = val
+                best_i = i
+        selected.append(remaining.pop(best_i))
+    return selected
 
 
 class RetrievalManager:
@@ -290,7 +345,8 @@ class RetrievalManager:
 
         # --- 1. Semantic Hook: Hot Tier ---
         # We fetch a larger pool to allow RRF and Topic Locking to function.
-        hot_hits = self.hot_tier.query_vector(query_emb, top_k=top_k * 10)
+        cand_k = max(top_k * 10, 100)
+        hot_hits = self.hot_tier.query_vector(query_emb, top_k=cand_k)
         hot_scored = []
         for atom in hot_hits:
             if len(atom.embedding) == len(query_emb):
@@ -312,14 +368,30 @@ class RetrievalManager:
             )
 
         # --- 1a2. Keyword Hook: Hot + probed cold tiers (BM25 / lexical overlap) ---
+        # Multi-query BM25: decompose "Given X, what Y". Scores are *normalized
+        # per subquery* before taking max — otherwise a long ask (BM25=12)
+        # drowns a short preference clause (BM25=8) that holds the evidence.
         keyword_scores: Dict[str, float] = {}
+        # One BM25 winner per subquery facet (multi-intent asks).
+        facet_winners: List[str] = []
+        keyword_queries: List[str] = []
         if query_text and query_text.strip():
-            for atom_id, score in self.hot_tier.keyword_index.search(
-                query_text, top_k=top_k * 10
-            ):
-                atom = self.hot_tier.atoms.get(atom_id)
-                if atom is not None:
-                    keyword_scores[atom_id] = score
+            keyword_queries = decompose_query(query_text)
+            for q_part in keyword_queries:
+                hits = self.hot_tier.keyword_index.search(
+                    q_part, top_k=max(cand_k, 64)
+                )
+                peak = hits[0][1] if hits else 0.0
+                if hits and hits[0][0] not in facet_winners:
+                    facet_winners.append(hits[0][0])
+                for rank, (atom_id, score) in enumerate(hits):
+                    atom = self.hot_tier.atoms.get(atom_id)
+                    if atom is None:
+                        continue
+                    norm = float(score) / peak if peak > 1e-9 else 0.0
+                    keyword_scores[atom_id] = max(
+                        keyword_scores.get(atom_id, 0.0), norm
+                    )
                     add_candidate(atom, float(score))
 
         # --- 1b. Semantic Hook: Cold Tier (probed epochs, not a full broadcast) ---
@@ -331,19 +403,27 @@ class RetrievalManager:
         self.last_probe_plan = plan
         epochs = plan.epochs
 
-        if query_text and query_text.strip():
+        if keyword_queries:
             kw_epochs = epochs if epochs else self.cold_tier.get_all_epochs()
-            for atom, score in self.cold_tier.search_keyword(
-                query_text, epochs=kw_epochs, top_k=top_k * 10
-            ):
-                keyword_scores[atom.id] = max(keyword_scores.get(atom.id, 0.0), score)
-                atom.access_count += self._access_deltas.get(atom.id, 0)
-                add_candidate(atom, float(score))
+            for q_part in keyword_queries:
+                hits = self.cold_tier.search_keyword(
+                    q_part, epochs=kw_epochs, top_k=max(cand_k, 64)
+                )
+                peak = hits[0][1] if hits else 0.0
+                if hits and hits[0][0].id not in facet_winners:
+                    facet_winners.append(hits[0][0].id)
+                for rank, (atom, score) in enumerate(hits):
+                    norm = float(score) / peak if peak > 1e-9 else 0.0
+                    keyword_scores[atom.id] = max(
+                        keyword_scores.get(atom.id, 0.0), norm
+                    )
+                    atom.access_count += self._access_deltas.get(atom.id, 0)
+                    add_candidate(atom, float(score))
 
         if epochs:
             pool = self._get_search_pool()
             future_to_epoch = {
-                pool.submit(self.cold_tier.search_epoch, epoch, query_emb, top_k * 10): epoch
+                pool.submit(self.cold_tier.search_epoch, epoch, query_emb, cand_k): epoch
                 for epoch in epochs
             }
             for future in concurrent.futures.as_completed(future_to_epoch):
@@ -622,58 +702,177 @@ class RetrievalManager:
             e_rank = entity_ranks.get(atom_id, 1000)
             k_rank = keyword_ranks.get(atom_id, 1000)
             
-            # Weighted reciprocal ranks
+            # Weighted reciprocal ranks — lean harder on BM25 when query_text is set
+            # (official conversational QA is highly lexical).
+            kw_w = 3.0 if (query_text and query_text.strip()) else 1.5
             score = (
                 3.0 / (K + s_rank)    # Semantic (3x weight)
                 + 1.0 / (K + r_rank)  # Recency
                 + 1.0 / (K + e_rank)  # Multi-hop Context
                 + 2.0 / (K + quant_ranks.get(atom_id, 1000)) # Quantitative (2x weight)
-                + 1.5 / (K + k_rank)  # Keyword / BM25 (1.5x weight)
+                + kw_w / (K + k_rank)  # Keyword / BM25
             )
-            
+
             # Topic Lock (Precision Booster)
             boost = get_topic_boost(atom)
             score += boost
-            
+
+            # Lexical overlap with the raw query (helps after cold flush when
+            # dense neighbors crowd out the exact evidence turn).
+            if query_text and query_text.strip():
+                payload_l = str(atom.payload).lower()
+                q_tokens = [
+                    t
+                    for t in query_text.lower().replace("?", " ").split()
+                    if len(t) > 3
+                ]
+                if q_tokens:
+                    hit = sum(1 for t in q_tokens if t in payload_l)
+                    score += 0.35 * (hit / len(q_tokens))
+
             # Supersession (Conflict resolution)
             if atom_id in superseded_ids:
                 score *= 0.0001
-                
+
             return score
 
-        # Pre-calculate scores to detect 'Signal' presence
+        # Pre-calculate RRF priors (candidate generation score).
         scored_results = []
         for atom, sim in unique_results:
             score = multi_rrf_score(atom.id, atom)
-            scored_results.append((atom, score))
-        
-        # Dynamic Signal-to-Noise Filter: demote background noise ONLY when a clear signal is found.
-        if scored_results:
-            max_score = max(s[1] for s in scored_results)
-            # Signal threshold: requires at least one strong boost or multiple weak ones
-            threshold = max(15.0, max_score * 0.8)
-            
-            final_scored = []
-            has_strong_signal = max_score >= threshold
-            
-            for atom, score in scored_results:
-                if has_strong_signal and score < threshold:
-                    # Soft demotion (0.1x) to keep context available but deprioritized
-                    score *= 0.1
-                final_scored.append((atom, score))
-            scored_results = final_scored
+            scored_results.append((atom, sim, score))
 
-        scored_results.sort(key=lambda x: x[1], reverse=True)
-        unique_results = scored_results
+        # Topic-lock SNR demotion is for entity-centric graph queries.
+        # For textual QA it crushes BM25/lexical evidence — skip it then.
+        if scored_results and not (query_text and query_text.strip()):
+            max_score = max(s[2] for s in scored_results)
+            threshold = max(15.0, max_score * 0.8)
+            has_strong_signal = max_score >= threshold
+            if has_strong_signal:
+                scored_results = [
+                    (a, sim, sc * 0.1 if sc < threshold else sc)
+                    for a, sim, sc in scored_results
+                ]
+
+        scored_results.sort(key=lambda x: x[2], reverse=True)
+
+        # --- 4b. Precision rerank (wide pool → small top_k) ---
+        # Internal pool size is *independent* of returned top_k so asking for
+        # 5–10 results gets the same ranking quality as a large-k sweep.
+        pool_n = max(128, top_k * 8)
+        pool = scored_results[:pool_n]
+        if query_text and query_text.strip() and pool:
+            focused = focus_query(query_text)
+            # Force-include per-subquery BM25 elites into the rerank pool.
+            pool_ids = {a.id for a, _, _ in pool}
+            pool_list = list(pool)
+            sim_by_id = {a.id: sim for a, sim, _ in pool}
+            rrf_by_id = {a.id: rrf for a, _, rrf in pool}
+            for eid in facet_winners:
+                if eid in pool_ids or eid in superseded_ids:
+                    continue
+                atom = candidates.get(eid, (None, 0.0))[0]
+                if atom is None:
+                    atom = self.hot_tier.atoms.get(eid)
+                if atom is None:
+                    continue
+                pool_list.append(
+                    (
+                        atom,
+                        float(sim_by_id.get(eid, 0.0)),
+                        float(rrf_by_id.get(eid, 0.0)),
+                    )
+                )
+                pool_ids.add(eid)
+
+            winner_set = set(facet_winners)
+            rerank_in = []
+            for atom, dense_sim, rrf_prior in pool_list:
+                if atom.id in superseded_ids:
+                    continue
+                ent_ov = get_overlap(atom)
+                bm25 = float(keyword_scores.get(atom.id, 0.0))
+                if bm25 <= 0.0:
+                    bm25 = lexical_precision(focused, str(atom.payload))
+                if atom.id in winner_set:
+                    bm25 = max(bm25, 1.0)
+                rerank_in.append(
+                    (atom, float(dense_sim), bm25, ent_ov, float(rrf_prior))
+                )
+            pre = precision_rerank(
+                focused, rerank_in, top_k=max(top_k * 3, 15)
+            )
+            # Prefer focused-facet winners (skip noisy full-question tops).
+            pin_ids = list(facet_winners)
+            if len(keyword_queries) > 1:
+                full_top = {
+                    aid
+                    for aid, _ in self.hot_tier.keyword_index.search(
+                        keyword_queries[0], top_k=2
+                    )
+                }
+                pin_focused = [x for x in pin_ids if x not in full_top]
+                pin_ids = pin_focused or pin_ids
+
+            atom_by_id = {a.id: a for a, *_ in rerank_in}
+            score_by_id = {a.id: s for a, s in pre}
+            dense_by_id = {a.id: d for a, d, *_ in rerank_in}
+            dens_vals = [d for d in dense_by_id.values() if d > 0]
+            dens_floor = (
+                sorted(dens_vals)[len(dens_vals) // 2] * 0.90
+                if dens_vals
+                else 0.0
+            )
+
+            pinned = []
+            seen = set()
+            # Fixed pin budgets (not scaled by top_k) so small-k recall is stable.
+            pin_budget = 2
+            for eid in pin_ids:
+                atom = atom_by_id.get(eid) or self.hot_tier.atoms.get(eid)
+                if atom is None or eid in seen or eid in superseded_ids:
+                    continue
+                dens = float(dense_by_id.get(eid, 0.0))
+                lex = lexical_precision(focused, str(atom.payload))
+                if dens < dens_floor * 0.85 and lex < 0.18:
+                    continue
+                pinned.append((atom, float(score_by_id.get(eid, 1.0)) + 0.75))
+                seen.add(eid)
+                if len(pinned) >= pin_budget:
+                    break
+
+            # Dense elites: evidence often sits at dense rank 3–4 behind chitchat.
+            dense_budget = min(4, max(0, top_k - len(pinned)))
+            dense_ranked = sorted(
+                ((a, d) for a, d, *_ in rerank_in if a.id not in seen),
+                key=lambda x: x[1],
+                reverse=True,
+            )
+            for atom, dens in dense_ranked[:dense_budget]:
+                pinned.append(
+                    (atom, float(score_by_id.get(atom.id, dens)) + 0.5)
+                )
+                seen.add(atom.id)
+
+            rest = [(a, s) for a, s in pre if a.id not in seen]
+            unique_results = (pinned + rest)[:top_k]
+        else:
+            unique_results = [
+                (a, sc)
+                for a, _, sc in pool
+                if a.id not in superseded_ids
+            ][:top_k]
 
         # --- 5. Materialise Results & Update Access Counts ---
         final_atoms = []
         # Merge series points if multiple series atoms for the same entity are present
         merged_series: Dict[Tuple[str, str], UnifiedMemoryAtom] = {}
 
-        for atom, score in unique_results[:top_k]:
+        for atom, score in unique_results:
             if atom.id in superseded_ids:
                 continue
+            if len(final_atoms) >= top_k:
+                break
 
             if atom.payload_type == PayloadType.SERIES:
                 for s, p, o in atom.triples:

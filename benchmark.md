@@ -1607,3 +1607,265 @@ Evaluation uses Entity Hook seeding to ensure Topic Lock.
 | ConvoMem | recall@3 | `1.000` |
 | LongMemEval | recall@3 | `1.000` |
 | NIAH | precision@3 | `1.000` |
+
+---
+
+## Named Benchmark Suite — 2026-11-13 16:40 UTC
+
+> Embeddings: `jersobh/epochdb-embed` (384D)  
+> Gemini API calls: 11033  ·  Wall time: 459.5s  
+> All data self-contained (no external HuggingFace datasets required)
+
+---
+
+### LoCoMo — Multi-Hop Relational Reasoning
+
+**Aggregate recall**: `1.000` (3/3 chains)
+
+| Chain (target) | Found at hop | Pass |
+|---|---|---|
+| Chain 1 (Helion) | 0 | ✓ |
+| Chain 2 (Dr. Chen) | 0 | ✓ |
+| Chain 3 (CRISPR-X) | 0 | ✓ |
+
+> LoCoMo queries are deliberately semantically distant from their targets.
+> Only Knowledge Graph traversal can retrieve the answer — flat vector stores
+> return 0 by design on these queries.
+
+---
+
+### ConvoMem — Conversational Memory Recall
+
+**recall@3**: `1.000` (5/5 conversations correct)
+
+5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
+Includes preference updates and corrections (tests most-recent-fact recall).
+
+---
+
+### LongMemEval — Longitudinal Session Memory
+
+**recall@3**: `1.000` (4/4 QA pairs correct)
+
+500 sessions ingested with epoch checkpoints between each.
+All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
+
+---
+
+### Needle in a Haystack — Retrieval Precision
+
+**precision@3**: `1.000` (3/3 results are signal)
+
+3 signal facts hidden among **10000** noise facts.  
+Evaluation uses Entity Hook seeding to ensure Topic Lock.
+
+---
+
+### Summary
+
+| Benchmark | Metric | Result |
+|---|---|---|
+| LoCoMo | Multi-hop recall | `1.000` |
+| ConvoMem | recall@3 | `1.000` |
+| LongMemEval | recall@3 | `1.000` |
+| NIAH | precision@3 | `1.000` |
+
+---
+
+## Named Benchmark Suite — 2026-11-13 17:11 UTC
+
+> Embeddings: `jersobh/epochdb-embed` (384D)  
+> Gemini API calls: 35671  ·  Wall time: 1322.6s  
+> Data: `official:locomo10` / `official:Salesforce/ConvoMem` / `official:longmemeval_s_cleaned`
+
+---
+
+### LoCoMo — Multi-Hop Relational Reasoning
+
+**Aggregate recall**: `0.256` (2/10 chains)
+
+| Chain (target) | Found at hop | Pass |
+|---|---|---|
+| Chain conv-26 (33/154) | None | ✓ |
+| Chain conv-30 (12/81) | None | ✓ |
+| Chain conv-41 (51/152) | None | ✓ |
+| Chain conv-42 (56/199) | None | ✓ |
+| Chain conv-43 (55/178) | None | ✓ |
+| Chain conv-44 (38/123) | None | ✓ |
+| Chain conv-47 (40/150) | None | ✓ |
+| Chain conv-48 (41/191) | None | ✓ |
+| Chain conv-49 (29/156) | None | ✓ |
+| Chain conv-50 (40/158) | None | ✓ |
+
+> LoCoMo queries are deliberately semantically distant from their targets.
+> Only Knowledge Graph traversal can retrieve the answer — flat vector stores
+> return 0 by design on these queries.
+
+---
+
+### ConvoMem — Conversational Memory Recall
+
+**recall@3**: `0.860` (43/50 conversations correct)
+
+5 multi-turn conversations ingested and flushed to Cold Tier before evaluation.
+Includes preference updates and corrections (tests most-recent-fact recall).
+
+---
+
+### LongMemEval — Longitudinal Session Memory
+
+**recall@3**: `0.740` (37/50 QA pairs correct)
+
+2436 sessions ingested with epoch checkpoints between each.
+All data in Cold Tier at evaluation time. 2-hop KG expansion enabled.
+
+---
+
+### Needle in a Haystack — Retrieval Precision
+
+**precision@3**: `1.000` (3/3 results are signal)
+
+3 signal facts hidden among **50** noise facts.  
+Evaluation uses Entity Hook seeding to ensure Topic Lock.
+
+---
+
+### Summary
+
+| Benchmark | Metric | Result |
+|---|---|---|
+| LoCoMo | Multi-hop recall | `0.256` |
+| ConvoMem | recall@3 | `0.860` |
+| LongMemEval | recall@3 | `0.740` |
+| NIAH | precision@3 | `1.000` |
+
+---
+
+## Named Benchmark Suite — 2026-11-13 18:58 UTC
+
+> Embeddings: `jersobh/epochdb-embed` (384D)  
+> Extraction: `local`  ·  Seed: `42`  
+> Gemini API calls: 34978  ·  Wall time: 3257.4s  
+> Data: `official:locomo10` / `official:Salesforce/ConvoMem` / `official:longmemeval_s_cleaned`
+
+---
+
+### LoCoMo — Multi-Hop Relational Reasoning
+
+**Aggregate recall**: `0.863` (1331/1542 QA · 10 conversations · recall@20)
+
+| Chain (target) | Found at hop | Pass |
+|---|---|---|
+| Chain conv-48 (165/191) | n/a | ✓ |
+| Chain conv-42 (178/199) | n/a | ✓ |
+| Chain conv-41 (137/152) | n/a | ✓ |
+| Chain conv-49 (136/156) | n/a | ✓ |
+| Chain conv-44 (106/123) | n/a | ✓ |
+| Chain conv-47 (117/150) | n/a | ✓ |
+| Chain conv-50 (138/158) | n/a | ✓ |
+| Chain conv-43 (154/178) | n/a | ✓ |
+| Chain conv-26 (136/154) | n/a | ✓ |
+| Chain conv-30 (64/81) | n/a | ✓ |
+
+> Official LoCoMo uses evidence-aware retrieval recall (answer or evidence turns in top-k).
+
+---
+
+### ConvoMem — Conversational Memory Recall
+
+**recall@10**: `0.680` (34/50 conversations correct)
+
+Conversations ingested with local/heuristic KG triples; keyword+semantic recall.
+
+---
+
+### LongMemEval — Longitudinal Session Memory
+
+**recall@10**: `0.860` (43/50 QA pairs correct)
+
+2381 sessions ingested with epoch checkpoints between each.
+Evidence-aware retrieval with KG expansion.
+
+---
+
+### Needle in a Haystack — Retrieval Precision
+
+**precision@3**: `1.000` (3/3 results are signal)
+
+3 signal facts hidden among **50** noise facts.  
+Evaluation uses Entity Hook seeding to ensure Topic Lock.
+
+---
+
+### Summary
+
+| Benchmark | Metric | Result |
+|---|---|---|
+| LoCoMo | multi-hop recall@20 | `0.863` |
+| ConvoMem | recall@10 | `0.680` |
+| LongMemEval | recall@10 | `0.860` |
+| NIAH | precision@3 | `1.000` |
+
+---
+
+## Named Benchmark Suite — 2026-11-13 (v1.14 precision-first)
+
+> Embeddings: `jersobh/epochdb-embed` (384D)  
+> Extraction: `local`  ·  Seed: `42`  
+> Engine: EpochDB **1.14.0** — wide candidate pool + precision rerank + query decompose  
+> Data: `official:locomo10` / `official:Salesforce/ConvoMem` / `official:longmemeval_s_cleaned`
+
+These are **measured** retrieval scores (answer or evidence turn in returned atoms). Returned `top_k` is kept small on purpose so LLM prompts stay token-cheap; the engine still searches a large internal pool.
+
+### LoCoMo — Multi-Hop Relational Reasoning
+
+**Aggregate recall@50**: `0.955` (1472/1542 QA · 10 conversations)
+
+| Chain | Hits | Recall@50 |
+|---|---|---|
+| conv-48 | 184/191 | 0.963 |
+| conv-42 | 195/199 | 0.980 |
+| conv-41 | 145/152 | 0.954 |
+| conv-49 | 153/156 | 0.981 |
+| conv-44 | 118/123 | 0.959 |
+| conv-47 | 139/150 | 0.927 |
+| conv-50 | 152/158 | 0.962 |
+| conv-43 | 173/178 | 0.972 |
+| conv-26 | 148/154 | 0.961 |
+| conv-30 | 65/81 | 0.802 |
+
+> Source: `/tmp/epochdb_bench_local2.log` (LoCoMo completed; suite interrupted before LongMemEval/NIAH finished on that process).
+
+### ConvoMem — Conversational Memory Recall (precision k-sweep)
+
+Dual-turn ingest · query decomposition · BM25 stemming · precision fusion · dense/BM25 elite seats · n=50 · seed 42:
+
+| Returned k | Recall | Correct |
+|---|---:|---:|
+| **5** | **0.80** | 40/50 |
+| **10** | **0.86** | 43/50 |
+| **20** | **1.00** | 50/50 |
+
+Coverage reaches 1.00 by k=20; remaining work is ranking the last misses into k≤10 without raising prompt size.
+
+Earlier mid-run on the same seed with recall@50 (pre-precision-rerank polish): ConvoMem **0.900** (45/50).
+
+### LongMemEval / NIAH
+
+No new completed full-suite LongMemEval+NIAH numbers under the v1.14 precision stack yet. Last **completed** full suite (2026-11-13 18:58 UTC, local extract, seed 42):
+
+| Benchmark | Metric | Result |
+|---|---|---|
+| LongMemEval_S | recall@10 | `0.860` |
+| NIAH | precision@3 | `1.000` |
+
+### Summary (honest headline)
+
+| Benchmark | Metric | Result | Status |
+|---|---|---|---|
+| LoCoMo | recall@50 | `0.955` | measured (v1.14 local2) |
+| ConvoMem | recall@10 | `0.860` | measured (v1.14 precision k-sweep) |
+| LongMemEval | recall@10 | `0.860` | last completed full suite |
+| NIAH | precision@3 | `1.000` | last completed full suite |
+
+> Do **not** advertise a synthetic “1.000 on all four” — that only holds on tiny built-in smoke conversations, not official datasets.

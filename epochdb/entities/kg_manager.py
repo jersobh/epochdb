@@ -179,6 +179,16 @@ class KGManager:
                 logger.error(f"Failed to query SQLite KG for batch of entities: {e}")
                 return {ent: [] for ent in entities}
 
+    def clear(self) -> None:
+        """Remove all associations (used between isolated benchmark cases)."""
+        with self._lock:
+            try:
+                cursor = self._conn.cursor()
+                cursor.execute("DELETE FROM kg_index")
+                self._conn.commit()
+            except Exception as e:
+                logger.error(f"Failed to clear SQLite KG: {e}")
+
     def get_all_entities(self) -> List[str]:
         """Returns all distinct entities in the KG."""
         with self._lock:

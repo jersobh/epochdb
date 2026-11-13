@@ -215,27 +215,41 @@ class LocalFactExtractor:
         self.engine = engine
 
     def extract(self, text: str) -> List[Tuple[str, str, str]]:
-        raw_entities = []
+        raw_entities: List[str] = []
         if self.engine is not None:
             try:
                 raw_entities = [str(e) for e in self.engine.extract_entities(text) if str(e)]
             except Exception:
                 pass
 
-        if not raw_entities:
-            words = [w.strip(".,!?;:()\"'") for w in text.split() if w.strip()]
-            nouns = [w for w in words if w and w[0].isupper()]
-            if not nouns:
-                nouns = [w for w in words if len(w) > 3][:3]
-            raw_entities = [str(n) for n in nouns if n]
+        # Always harvest surface forms so new entities enter the KG even when
+        # extract_entities only returns already-indexed GEI matches.
+        words = [w.strip(".,!?;:()\"'") for w in text.split() if w.strip()]
+        nouns = [w for w in words if w and w[0].isupper() and len(w) > 1]
+        if not nouns and not raw_entities:
+            nouns = [w for w in words if len(w) > 3][:3]
+        # Speaker labels like "Caroline:" / "user:" in conversational corpora.
+        for w in words[:2]:
+            if w.endswith(":") and len(w) > 2:
+                nouns.append(w[:-1])
+
+        for n in nouns:
+            if n and n not in raw_entities:
+                raw_entities.append(str(n))
 
         seen = set()
         entities = []
         predicates = set()
         if self.engine is not None:
             predicates = {str(p) for p in getattr(self.engine, "predicates", set()) or set()}
+        blacklist = {
+            "the", "a", "an", "and", "or", "but", "user", "agent", "assistant",
+            "i", "you", "he", "she", "they", "we", "it", "this", "that",
+        }
         for e in raw_entities:
             if e in predicates or e.lower().replace(" ", "_") in {p.lower() for p in predicates}:
+                continue
+            if e.lower() in blacklist:
                 continue
             if e not in seen:
                 seen.add(e)

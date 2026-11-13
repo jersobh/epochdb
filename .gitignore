@@ -24,6 +24,8 @@ env/
 .lancedb_benchmark_comp
 .epochdb_benchmark_comp
 .lancedb_scalability
+benchmarks/data/
+.epochdb_run_all/
 
 # IDE and OS files
 .vscode/

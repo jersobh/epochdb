@@ -4,26 +4,37 @@ EpochDB has been benchmarked across both standardized relational evaluation suit
 
 ---
 
-## 1. The 1.000 Sweep Benchmark
+## 1. Official retrieval benchmarks (evidence-aware)
 
-EpochDB achieves a perfect **1.000** score across the four canonical AI memory benchmark suites:
+These numbers are from the **official** LoCoMo / ConvoMem / LongMemEval / NIAH datasets. The metric is whether gold answer or evidence text appears in the returned atoms (retrieval), **not** LLM-judged answer accuracy. Tiny synthetic smoke suites can still score 1.000 — do not confuse them with the table below.
 
-| Benchmark | Focus Area | Metric | Score | Industry Average |
-| :--- | :--- | :--- | :---: | :---: |
-| **LoCoMo** | Complex multi-hop relational graph reasoning | Multi-hop recall | **1.000** | ~0.740 |
-| **ConvoMem** | Fact correction, temporal changes, & preference updates | Recall@3 | **1.000** | ~0.680 |
-| **LongMemEval** | Longitudinal recall across distant epochs | Recall@3 | **1.000** | ~0.810 |
-| **NIAH** | Needle in a Haystack amidst high distractors | Precision@3 | **1.000** | ~0.790 |
+### Full suite — 2026-11-13
 
-### Why EpochDB Achieves 1.000
-1. **Topic Lock (+20.0)** eliminates distractors that trip up semantic cosine similarity in NIAH.
-2. **Supersession (0.0001x)** demotes outdated facts in ConvoMem, resolving preference updates deterministically.
-3. **Relational Expansion** bridges disconnected nodes in LoCoMo.
-4. **Probed Cold Retrieval** recalls facts across distant partitions in LongMemEval without linear scan degradation.
+`jersobh/epochdb-embed` (384D) · extraction=`local` · seed=`42` · `--official --limit 50`
 
-*Run the benchmark suite locally:*
+| Benchmark | Focus Area | Metric | Score |
+| :--- | :--- | :--- | :---: |
+| **LoCoMo-10** | Multi-hop conversational QA | recall@20 | **0.863** |
+| **ConvoMem** (Salesforce) | Preference / correction recall | recall@10 | **0.680** |
+| **LongMemEval_S** | Longitudinal session haystacks | recall@10 | **0.860** |
+| **NIAH** | Needle among distractors | precision@3 | **1.000** |
+
+### Precision-first stack (v1.14)
+
+Wide internal candidate pool → precision rerank → **small returned k** (token-efficient for LLM prompts):
+
+| Benchmark | Metric | Score | Notes |
+| :--- | :--- | :---: | :--- |
+| **LoCoMo-10** | recall@50 | **0.955** | 1472/1542 QA · seed 42 |
+| **ConvoMem** | recall@5 | **0.80** | n=50 · query decompose + elite seats |
+| **ConvoMem** | recall@10 | **0.86** | same run |
+| **ConvoMem** | recall@20 | **1.00** | coverage ceiling at k=20 |
+
+What moved the needle: BM25 stemming, per-subquery normalized multi-query BM25, cold-tier BM25, precision fusion, and decoupling the internal pool from returned `top_k`.
+
+*Run the suite locally:*
 ```bash
-python -m benchmarks.run_all
+python -m benchmarks.run_all --official --limit 50 --extraction-model local --seed 42
 ```
 
 ---

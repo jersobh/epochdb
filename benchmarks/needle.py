@@ -74,18 +74,57 @@ NOISE_FACTS: List[str] = [
     "Project Phoenix is rebuilding the recovery logic for multi-node clusters.",
 ]
 
-def run(db, embedder) -> Dict[str, float]:
-    """Run the NIAH benchmark. Returns precision@3 and related metrics."""
-    logger.info("[NIAH] Running Needle in a Haystack (precision@3) benchmark.")
+def expand_noise(target_count: int) -> List[str]:
+    """Expand the built-in noise list to ``target_count`` unique distractors."""
+    if target_count <= len(NOISE_FACTS):
+        return NOISE_FACTS[:target_count]
+    out = list(NOISE_FACTS)
+    templates = [
+        "Status update #{n}: team {t} closed ticket {k} after review cycle {c}.",
+        "Ops note #{n}: cluster {t} reported latency spike on shard {k} (cycle {c}).",
+        "Planning item #{n}: squad {t} deferred milestone {k} until sprint {c}.",
+        "Audit log #{n}: policy {t} validated control {k} for period {c}.",
+        "Research brief #{n}: lab {t} archived experiment {k} in notebook {c}.",
+    ]
+    teams = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"]
+    n = 0
+    while len(out) < target_count:
+        tmpl = templates[n % len(templates)]
+        out.append(
+            tmpl.format(
+                n=n,
+                t=teams[n % len(teams)],
+                k=n % 997,
+                c=(n // 7) % 53,
+            )
+        )
+        n += 1
+    return out
+
+
+def run(db, embedder, noise_count: int | None = None) -> Dict[str, float]:
+    """Run the NIAH benchmark. Returns precision@3 and related metrics.
+
+    ``noise_count`` expands the haystack (default: built-in ~50 facts).
+    Pass a large value (e.g. 10_000) for the huge-dataset suite.
+    """
+    haystack = expand_noise(noise_count) if noise_count else NOISE_FACTS
+    logger.info(
+        "[NIAH] Running Needle in a Haystack (precision@3) — "
+        f"{len(haystack)} noise + {len(SIGNAL_FACTS)} signal."
+    )
 
     db.hot_tier.clear()
     db.wal.clear()
 
     # Ingest haystack (noise)
     noise_ids = set()
-    for text in NOISE_FACTS:
+    for i, text in enumerate(haystack):
         aid = db.add_memory(text, embedder.encode(text), triples=[])
         noise_ids.add(aid)
+        if (i + 1) % 1000 == 0:
+            logger.info(f"  … ingested {i + 1}/{len(haystack)} noise facts")
+            db.force_checkpoint()
     
     # Ingest needles (signal)
     signal_ids = set()
@@ -117,5 +156,5 @@ def run(db, embedder) -> Dict[str, float]:
         "signal_hits": signal_hits,
         "noise_hits": noise_hits,
         "total_signal": len(SIGNAL_FACTS),
-        "total_noise": len(NOISE_FACTS),
+        "total_noise": len(haystack),
     }
