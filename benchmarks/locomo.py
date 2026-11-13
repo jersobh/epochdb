@@ -15,6 +15,13 @@ import time
 import logging
 from typing import Dict, List, Tuple
 
+from benchmarks.extract_helpers import (
+    evidence_hit,
+    extract_triples,
+    reset_case_state,
+    surface_query_entities,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,7 +97,7 @@ def run(db, embedder) -> Dict[str, float]:
         q_emb = embedder.encode(query)
         found_at = None
         for hops in range(6):
-            results = db.recall(q_emb, top_k=5, expand_hops=hops)
+            results = db.recall(q_emb, top_k=5, expand_hops=hops, query_text=query)
             if any(target.lower() in str(r.payload).lower() for r in results):
                 found_at = hops
                 break
@@ -112,4 +119,105 @@ def run(db, embedder) -> Dict[str, float]:
         "recall@chains": aggregate_recall,
         "chains": chain_results,
         "total_chains": total_chains,
+        "source": "synthetic",
+    }
+
+
+def _answer_match(answer, payloads: List[str]) -> bool:
+    """True if the LoCoMo answer (str/int) is evidenced in retrieved payloads."""
+    return evidence_hit(answer, None, payloads)
+
+
+def run_official(
+    db, embedder, *, limit_qa: int | None = None, seed: int | None = 42
+) -> Dict[str, float]:
+    """Run official LoCoMo-10: ingest each conversation, score QA via recall@20."""
+    from benchmarks.official_data import LOCOMO_PATH, download_locomo, iter_locomo_cases
+
+    path = download_locomo()
+    logger.info("[LoCoMo] Official dataset: %s (seed=%s)", path, seed)
+
+    chain_results = []
+    total_correct = 0
+    total_qa = 0
+    # Precision-first: return ≤10 atoms to the judge / LLM context.
+    top_k = 10
+    expand_hops = 3
+
+    for sample_id, turns, qa in iter_locomo_cases(path, seed=seed):
+        reset_case_state(db)
+
+        texts = [turn["text"] for turn in turns]
+        for j, turn in enumerate(turns):
+            # Pair adjacent dialogue turns — better multi-hop evidence packing.
+            text = f"{texts[j - 1]} {texts[j]}" if j > 0 else texts[j]
+            triples = extract_triples(db, text)
+            meta = {"dia_id": turn.get("dia_id")} if turn.get("dia_id") else None
+            db.add_memory(text, embedder.encode(text), triples, metadata=meta)
+
+        sample_correct = 0
+        sample_total = 0
+        for qi, q in enumerate(qa):
+            if limit_qa is not None and total_qa >= limit_qa:
+                break
+            question = q["question"]
+            answer = q["answer"]
+            evidence_texts = q.get("evidence_texts") or []
+            entities = []
+            if hasattr(db, "extract_entities"):
+                try:
+                    entities = list(db.extract_entities(question) or [])
+                except Exception:
+                    entities = []
+            for e in surface_query_entities(question):
+                if e not in entities:
+                    entities.append(e)
+            q_emb = embedder.encode(question)
+            results = db.recall(
+                q_emb,
+                top_k=top_k,
+                expand_hops=expand_hops,
+                query_entities=entities or None,
+                query_text=question,
+                cold_search_mode="exhaustive",
+            )
+            payloads = [str(r.payload) for r in results]
+            ok = evidence_hit(answer, evidence_texts, payloads)
+            sample_correct += int(ok)
+            sample_total += 1
+            total_correct += int(ok)
+            total_qa += 1
+
+        recall = sample_correct / sample_total if sample_total else 0.0
+        chain_results.append(
+            {
+                "chain": sample_id,
+                "target": f"{sample_correct}/{sample_total}",
+                "found_at_hop": None,
+                "expected_min_hops": 0,
+                "recall": recall,
+                "correct": sample_correct,
+                "total": sample_total,
+            }
+        )
+        logger.info(
+            "  %s: recall@%d=%.3f (%d/%d)",
+            sample_id,
+            top_k,
+            recall,
+            sample_correct,
+            sample_total,
+        )
+        if limit_qa is not None and total_qa >= limit_qa:
+            break
+
+    aggregate = total_correct / total_qa if total_qa else 0.0
+    return {
+        "recall@chains": aggregate,
+        "chains": chain_results,
+        "total_chains": len(chain_results),
+        "correct": total_correct,
+        "total": total_qa,
+        "top_k": top_k,
+        "source": "official:locomo10",
     }

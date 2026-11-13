@@ -709,6 +709,7 @@ class EpochDB:
         fork_id: Optional[str] = None,
         memory_type: Optional[str] = None,
         cold_search_mode: Optional[str] = None,
+        query_text: Optional[str] = None,
     ) -> List[UnifiedMemoryAtom]:
         """Query memory using a dense embedding vector."""
         with self._internal_lock:
@@ -719,6 +720,7 @@ class EpochDB:
                 query_entities=query_entities,
                 fork_id=fork_id,
                 cold_search_mode=cold_search_mode,
+                query_text=query_text,
             )
             # Filter by memory_type if specified
             if memory_type:
@@ -1083,6 +1085,7 @@ class EpochDB:
                 query_entities=query_entities,
                 memory_type=memory_type,
                 cold_search_mode=cold_search_mode,
+                query_text=query,
             )
 
     # -------------------------------------------------------------------------

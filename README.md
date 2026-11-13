@@ -84,19 +84,31 @@ graph TD
 
 ## Performance, Latency & Token Efficiency
 
-### 1. The 1.000 Sweep Benchmark
-EpochDB achieves a perfect **1.000** score across named benchmark suites designed to validate engine logic:
+### 1. Official retrieval benchmarks (evidence-aware)
+
+Scores below are **measured on the official datasets** (not the tiny synthetic smoke suites). Metric = whether the gold answer or evidence turn appears in the returned memories — retrieval recall / precision, not LLM-judged QA accuracy.
+
+**Full suite** — 2026-11-13 · `jersobh/epochdb-embed` (384D) · extraction=`local` · seed=`42` · `--official --limit 50`:
 
 | Benchmark | What it tests | Metric | Score |
-|---|---|---|---|
-| **LoCoMo** | Multi-hop relational reasoning | Multi-hop recall | **1.000** |
-| **ConvoMem** | Fact correction & preference recall | recall@3 | **1.000** |
-| **LongMemEval** | Longitudinal recall (cross-epoch) | recall@3 | **1.000** |
-| **NIAH** | Needle in a Haystack (High-noise) | precision@3 | **1.000** |
+|---|---|---|---:|
+| **LoCoMo-10** | Multi-hop conversational QA | recall@20 | **0.863** |
+| **ConvoMem** (Salesforce slice) | Preference / correction recall | recall@10 | **0.680** |
+| **LongMemEval_S** | Longitudinal session haystacks | recall@10 | **0.860** |
+| **NIAH** | Needle in a haystack | precision@3 | **1.000** |
 
-*Run the benchmark suite locally:*
+**Precision-first stack (v1.14)** — same embedder/seed; engine returns a *small* `top_k` after a wide internal candidate pool + precision rerank (token-cheap for LLM context):
+
+| Benchmark | Metric | Score | Notes |
+|---|---|---:|---|
+| **LoCoMo-10** | recall@50 | **0.955** | 1472/1542 QA · seed 42 |
+| **ConvoMem** | recall@5 / @10 / @20 | **0.80 / 0.86 / 1.00** | n=50 · dual-turn ingest · query decompose |
+
+> Design goal: hit high recall at **returned k ≈ 5–10**, not by dumping k=100 into the prompt. Full logs live in [`benchmark.md`](benchmark.md).
+
+*Run the suite locally:*
 ```bash
-venv/bin/python -m benchmarks.run_all
+venv/bin/python -m benchmarks.run_all --official --limit 50 --extraction-model local --seed 42
 ```
 
 ### 2. Operational Latency

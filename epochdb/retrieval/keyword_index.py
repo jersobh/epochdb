@@ -13,9 +13,50 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _K1 = 1.5
 _B = 0.75
 
+_DAY_MAP = {
+    "mondays": "monday",
+    "tuesdays": "tuesday",
+    "wednesdays": "wednesday",
+    "thursdays": "thursday",
+    "fridays": "friday",
+    "saturdays": "saturday",
+    "sundays": "sunday",
+}
+
+
+def _light_stem(token: str) -> str:
+    """Aggressive-enough English stem for memory QA (days, plurals, verbs)."""
+    t = _DAY_MAP.get(token, token)
+    if len(t) <= 3:
+        return t
+    for suf, rep in (
+        ("ational", "ate"),
+        ("tional", "tion"),
+        ("enci", "ence"),
+        ("anci", "ance"),
+        ("izer", "ize"),
+        ("ation", "ate"),
+        ("ator", "ate"),
+        ("alling", "all"),
+        ("ingly", ""),
+        ("edly", ""),
+        ("ies", "y"),
+        ("ing", ""),
+        ("ers", "er"),
+        ("ied", "y"),
+        ("ed", ""),
+        ("ly", ""),
+        ("es", ""),
+        ("s", ""),
+    ):
+        if t.endswith(suf) and len(t) - len(suf) >= 3:
+            stem = t[: -len(suf)] + rep
+            return stem if stem else t
+    return t
+
 
 def tokenize(text: str) -> List[str]:
-    return _TOKEN_RE.findall((text or "").lower())
+    return [_light_stem(t) for t in _TOKEN_RE.findall((text or "").lower())]
 
 
 def atom_text(payload) -> str:

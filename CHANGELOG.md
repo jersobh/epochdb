@@ -6,6 +6,22 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.14.0] - 2026-11-13
+### Added
+- **Precision-first retrieval**: two-stage recall — wide candidate generation, then a calibrated precision rerank that returns a *small* `top_k` (token-cheap for LLM context). Dense, BM25, lexical/phrase, entity, and autobiographical signals are fused with a **max-pool peak** term so one strong channel can promote evidence into small-k; BM25 and dense elite seats keep multi-intent evidence from being crowded out.
+- **Query decomposition** (`epochdb.retrieval.query_decompose`): heuristic splits for “Given X, what Y?”, reminder wrappers, and content-keyword subqueries. Per-subquery BM25 scores are **normalized before max**, so a long ask cannot drown a short preference clause.
+- **Light stemming in BM25** (`KeywordIndex.tokenize`): day-name and plural/verb stems so `Mondays`↔`Monday` and similar morphology align.
+- **Cold-tier BM25**: ephemeral `KeywordIndex` over probed parquet epochs (replaces crude token-overlap), matching Hot Tier lexical quality after flush.
+- **Official benchmark harness**: LoCoMo / ConvoMem / LongMemEval runners with seed shuffle, evidence-aware scoring, local/HF extraction hooks, and `cold_search_mode="exhaustive"` for fair archive recall.
+
+### Changed
+- **RRF keyword weight** rises when `query_text` is present; topic-lock SNR demotion is skipped for textual QA (it was crushing BM25 evidence).
+- **Internal candidate pool** is decoupled from returned `top_k` (minimum ~100 vector / 128 rerank pool) so asking for 5–10 results keeps the same ranking quality as a large-k sweep.
+- **README / docs benchmarks**: replaced synthetic “1.000 sweep” marketing with measured **official-dataset** scores (see README and `benchmark.md`).
+
+### Fixed
+- Facet-winner pinning no longer fills small `top_k` exclusively with full-question BM25 chatter; dense elites and gated preference facets share the returned set.
+
 ## [1.13.0] - 2026-11-07
 ### Added
 - **Dynamic CausalLM & GLiNER Fact Extraction**:

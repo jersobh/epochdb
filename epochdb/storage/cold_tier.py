@@ -9,7 +9,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from collections import OrderedDict
 from epochdb.core.atom import UnifiedMemoryAtom, PayloadType, MemoryType, ScalarPayload, SeriesPayload, SeriesPoint, ConstraintPayload
 from epochdb.core.units import UnitRegistry
-from epochdb.retrieval.keyword_index import atom_text, score_text_overlap
+from epochdb.retrieval.keyword_index import KeywordIndex, atom_text, score_text_overlap
 from epochdb.storage.skill_index import skill_lookup_keys
 import logging
 import time
@@ -494,12 +494,15 @@ class ColdTier:
         epochs: Optional[List[str]] = None,
         top_k: int = 50,
     ) -> List[Tuple[UnifiedMemoryAtom, float]]:
-        """Lexical search over probed cold epochs (payload text only)."""
+        """BM25 lexical search over probed cold epochs (payload text)."""
         if not query_text or not query_text.strip():
             return []
 
         target_epochs = epochs if epochs is not None else self.get_all_epochs()
-        hits: List[Tuple[UnifiedMemoryAtom, float]] = []
+        # Build an ephemeral BM25 index over the probed epochs so cold recall
+        # matches Hot Tier quality instead of crude token-overlap.
+        index = KeywordIndex()
+        atoms_by_id: Dict[str, UnifiedMemoryAtom] = {}
 
         for epoch_id in target_epochs:
             file_path = os.path.join(self.storage_dir, f"{epoch_id}.parquet")
@@ -527,12 +530,25 @@ class ColdTier:
 
             for row in table.to_pylist():
                 atom = self._row_to_atom(row)
-                score = score_text_overlap(query_text, atom_text(atom.payload))
-                if score <= 0:
-                    continue
                 atom.epoch_id = epoch_id
-                hits.append((atom, score))
+                atoms_by_id[atom.id] = atom
+                index.index(atom.id, atom_text(atom.payload))
 
+        ranked = index.search(query_text, top_k=top_k)
+        if ranked:
+            return [
+                (atoms_by_id[aid], score)
+                for aid, score in ranked
+                if aid in atoms_by_id
+            ]
+
+        # Extremely small corpora: fall back to overlap so we never return empty
+        # when a token match exists.
+        hits: List[Tuple[UnifiedMemoryAtom, float]] = []
+        for atom in atoms_by_id.values():
+            score = score_text_overlap(query_text, atom_text(atom.payload))
+            if score > 0:
+                hits.append((atom, score))
         hits.sort(key=lambda item: item[1], reverse=True)
         return hits[:top_k]
 
