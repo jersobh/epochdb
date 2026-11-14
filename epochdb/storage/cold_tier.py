@@ -650,13 +650,7 @@ class ColdTier:
                 pruned_ids.append(atom.id)
                 continue
                 
-            NON_SUPERSEDING_PREDICATES = {
-                "co_occurs_with", "mentions", "associated_with", "related_to",
-                "tagged_with", "has_tag", "contains", "part_of", "member_of",
-                "founded", "co_founded", "created", "invented", "designed",
-                "mentored", "worked_at", "attended", "developed", "pioneered",
-                "authored", "discovered", "produced", "competes_with",
-            }
+            from epochdb.core.predicates import NON_SUPERSEDING_PREDICATES
 
             is_superseded = False
             for s, p, o in atom.triples:
@@ -672,7 +666,12 @@ class ColdTier:
                     elif atom.payload_type == PayloadType.CONSTRAINT and active_atom.payload_type == PayloadType.CONSTRAINT:
                         if atom.payload.expression == active_atom.payload.expression:
                             is_superseded = True
-                    elif atom.payload_type == PayloadType.TEXT:
+                    elif (
+                        atom.payload_type == PayloadType.TEXT
+                        and active_atom.payload_type == PayloadType.TEXT
+                    ):
+                        # Intentional text updates of the same fact (e.g. description)
+                        # still collapse on compact; typing/associative preds are exempt above.
                         is_superseded = True
                 else:
                     active_states[state_key] = atom
