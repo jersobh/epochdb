@@ -199,3 +199,30 @@ def test_corrupt_parquet_handling(test_db):
     # The recall should complete successfully
     assert isinstance(results, list)
 
+
+# ---------------------------------------------------------------------------
+# Shared typing triples must not hide distinct TEXT memories
+# ---------------------------------------------------------------------------
+
+def test_isa_triples_do_not_supersede_distinct_text_memories(test_db):
+    """GLiNER-style is_a edges collide across unrelated episodic writes."""
+    emb = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    ids = []
+    for i in range(8):
+        mid = test_db.add_memory(
+            f"Resolved Customer Board Case #{i}: unique problem {i}",
+            emb,
+            triples=[
+                ("Customer Board", "is_a", "Organization"),
+                ("Customer Board", "associated_with", f"case-{i}"),
+                ("problem", "co_occurs_with", f"case-{i}"),
+            ],
+            metadata={"type": "customer_board_case", "case_id": f"CB-{i:03d}"},
+        )
+        ids.append(mid)
+
+    results = test_db.recall(emb, top_k=20)
+    got = {r.id for r in results}
+    assert len(got) == 8, f"expected 8 memories, got {len(got)}: {got}"
+    assert set(ids) == got
+

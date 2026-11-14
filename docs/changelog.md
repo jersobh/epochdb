@@ -6,6 +6,10 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.14.1] - 2026-11-14
+### Fixed
+- **Query recall vs shared extractor triples**: typing predicates (`is_a`, `instance_of`, …) join the non-superseding set, and free-text memories are no longer hard-dropped during retrieval merely because they share a `(subject, predicate)` edge. GLiNER/`is_a` collisions across distinct episodic writes no longer collapse recall to the newest few hits.
+
 ## [1.14.0] - 2026-11-13
 ### Added
 - **Precision-first retrieval**: two-stage recall — wide candidate generation, then a calibrated precision rerank that returns a *small* `top_k` (token-cheap for LLM context). Dense, BM25, lexical/phrase, entity, and autobiographical signals are fused with a **max-pool peak** term so one strong channel can promote evidence into small-k; BM25 and dense elite seats keep multi-intent evidence from being crowded out.

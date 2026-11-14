@@ -561,49 +561,42 @@ class RetrievalManager:
         # Track active states per (subject, predicate)
         active_states: Dict[Tuple[str, str], UnifiedMemoryAtom] = {}
 
-        # Associative, co-occurrence, and biographical/multi-entity predicates must never supersede existing facts
-        NON_SUPERSEDING_PREDICATES = {
-            "co_occurs_with", "mentions", "associated_with", "related_to",
-            "tagged_with", "has_tag", "contains", "part_of", "member_of",
-            "founded", "co_founded", "created", "invented", "designed",
-            "mentored", "worked_at", "attended", "developed", "pioneered",
-            "authored", "discovered", "produced", "competes_with",
-        }
-        
+        # Associative / typing / biographical edges must never hide distinct episodic memories.
+        from epochdb.core.predicates import NON_SUPERSEDING_PREDICATES
+
         for atom, _ in recency_sorted:
             for s, p, o in atom.triples:
                 p_l = str(p).lower()
                 if p_l in NON_SUPERSEDING_PREDICATES:
                     continue
                 state_key = (str(s).lower(), p_l)
-                
+
                 if state_key in active_states:
                     active_atom = active_states[state_key]
-                    
+
                     # RULE: Scalars supersede if values differ or if newer
                     if atom.payload_type == PayloadType.SCALAR and active_atom.payload_type == PayloadType.SCALAR:
                         if atom.payload.value != active_atom.payload.value:
                             superseded_ids.add(atom.id)
                         else:
                             # Same value, newer one wins
-                            pass # active_atom is already newer due to sort order
-                    
+                            pass  # active_atom is already newer due to sort order
+
                     # RULE: Series APPEND (No supersession here, they merge during materialization)
                     elif atom.payload_type == PayloadType.SERIES and active_atom.payload_type == PayloadType.SERIES:
-                        # Series atoms complement each other
                         pass
-                    
+
                     # RULE: Constraints evaluate subsumption
                     elif atom.payload_type == PayloadType.CONSTRAINT and active_atom.payload_type == PayloadType.CONSTRAINT:
-                        # If active_atom (newer) is broader than atom (older), atom is superseded
-                        # For now, a simple 'same expression' check or placeholder for Z3 subsumption
                         if atom.payload.expression == active_atom.payload.expression:
                             superseded_ids.add(atom.id)
-                    
-                    # DEFAULT: Recency-based supersession for Text or mixed types
+
+                    # TEXT / mixed: do NOT hard-supersede. Extractors attach many shared
+                    # (subject, predicate) edges across unrelated memories; dropping the
+                    # older atom nukes recall (e.g. N board cases → << N query hits).
+                    # Compaction may still prune intentional text updates by predicate.
                     else:
-                        if active_atom.id != atom.id:
-                            superseded_ids.add(atom.id)
+                        pass
                 else:
                     active_states[state_key] = atom
 
