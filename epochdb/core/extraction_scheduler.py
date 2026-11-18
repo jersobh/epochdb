@@ -102,11 +102,7 @@ class ExtractionScheduler:
 
             atom = engine.hot_tier.atoms.get(atom_id)
             if atom is None:
-                for epoch_id in engine.cold_tier.get_all_epochs():
-                    loaded = engine.cold_tier.load_atom_metadata(epoch_id, [atom_id])
-                    if loaded:
-                        atom = loaded[0]
-                        break
+                atom = engine._latest_cold_atom(atom_id)
 
             if atom is None:
                 logger.warning(f"Skipping extraction merge; atom {atom_id} no longer exists")

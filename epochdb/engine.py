@@ -387,6 +387,17 @@ class EpochDB:
         with self._internal_lock:
             return len(self.hot_tier.atoms) + self.cold_tier.get_total_atoms()
 
+    def _latest_cold_atom(self, memory_id: str) -> Optional[UnifiedMemoryAtom]:
+        """Return the newest cold-tier version of an atom by created_at, if any."""
+        candidates = []
+        for epoch_id in self.cold_tier.get_all_epochs():
+            atoms = self.cold_tier.load_atom_metadata(epoch_id, [memory_id])
+            if atoms:
+                candidates.append(atoms[0])
+        if not candidates:
+            return None
+        return max(candidates, key=lambda a: a.created_at)
+
     @property
     def parquet_compression(self) -> str:
         """Returns the current Parquet compression method."""
@@ -580,11 +591,7 @@ class EpochDB:
 
             atom = self.hot_tier.atoms.get(atom_id)
             if atom is None:
-                for epoch_id in self.cold_tier.get_all_epochs():
-                    loaded = self.cold_tier.load_atom_metadata(epoch_id, [atom_id])
-                    if loaded:
-                        atom = loaded[0]
-                        break
+                atom = self._latest_cold_atom(atom_id)
 
             if atom is None:
                 return self.add_memory(
@@ -759,7 +766,7 @@ class EpochDB:
         """Run DuckDB SQL analytics directly over Cold Tier Parquet archives."""
         with self._internal_lock:
             analytics = ColdTierAnalytics(self.storage_dir)
-            return analytics.query_sql(sql)
+            return analytics.query_sql(sql, deleted_atom_ids=self.deleted_atom_ids)
 
     def get_hub_entities(self, limit: int = 50) -> List[str]:
         """Return the most-connected entities for graph visualization."""

@@ -6,6 +6,14 @@
 
 All notable changes to EpochDB will be documented in this file.
 
+## [1.14.2] - 2026-11-18
+### Fixed
+- **Hard delete physical erasure**: `compact()` now drops `deleted_atom_ids` from Parquet (including prior `compacted_*` archives); the SQL `cold_tier` view excludes hard-deleted IDs until purge completes.
+- **Filter operators**: unknown operators raise `ValueError`; ordered compares with incompatible types are non-matches instead of aborting the query; `$in`/`$nin` require a list/tuple/set.
+- **Cold-tier `update()`**: uses newest-by-`created_at` across epochs (same as `get()`), avoiding silent reverts from arbitrary epoch order.
+- **`context_window` isolation**: neighbors attach to a per-query atom copy and honor query filters, so stored metadata / WAL are not polluted.
+- **BM25 facet winners**: re-injection and pinning skip soft-deleted and filter-mismatched atoms.
+
 ## [1.14.1] - 2026-11-14
 ### Fixed
 - **Query recall vs shared extractor triples**: typing predicates (`is_a`, `instance_of`, …) join the non-superseding set, and free-text memories are no longer hard-dropped during retrieval merely because they share a `(subject, predicate)` edge. GLiNER/`is_a` collisions across distinct episodic writes (e.g. N board cases) no longer collapse recall to the newest few hits. Compaction still collapses intentional text updates (e.g. `description`) while exempting the same typing/associative predicates.

@@ -145,7 +145,7 @@ Extracts a directed subgraph around the target entity up to `depth` hops away.
 ```python
 def query_sql(self, sql_query: str) -> list[dict]
 ```
-Executes vectorized DuckDB SQL over the `cold_tier` view covering all historical Parquet archives.
+Executes vectorized DuckDB SQL over the `cold_tier` view covering all historical Parquet archives. Hard-deleted atom IDs are excluded from the view even before compaction physically removes their Parquet rows.
 
 ---
 
@@ -153,7 +153,7 @@ Executes vectorized DuckDB SQL over the `cold_tier` view covering all historical
 ```python
 def delete(self, atom_id: str, hard: bool = False) -> bool
 ```
-Marks a memory atom as deleted (`hard=False`) or permanently removes it (`hard=True`).
+Marks a memory atom as deleted (`hard=False`) or logically hard-deletes it (`hard=True`). Soft delete writes a `_deleted` tombstone version. Hard delete removes the atom from the hot tier immediately and hides it from `get()` / `query()` / SQL; physical Parquet erasure happens on the next successful `compact()`.
 
 ---
 
@@ -161,4 +161,4 @@ Marks a memory atom as deleted (`hard=False`) or permanently removes it (`hard=T
 ```python
 def compact() -> None
 ```
-Consolidates historical Parquet archives and purges soft-deleted records.
+Consolidates historical Parquet archives (including prior `compacted_*` files) and purges soft-deleted and hard-deleted records.

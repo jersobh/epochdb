@@ -76,7 +76,9 @@ If the total number of epochs in storage is smaller than `recency_epochs + centr
 ## Space Compaction & Deduplication
 
 Over extended agent deployments, deleted memories and superseded facts accumulate on disk. Calling `db.compact()`:
-- Scans Cold Tier Parquet archives.
-- Removes soft-deleted atoms.
+- Scans Cold Tier Parquet archives, including prior `compacted_*` consolidations.
+- Removes soft-deleted atoms (`metadata["_deleted"]`) and hard-deleted atom IDs.
 - Re-indexes the remaining atoms into consolidated Parquet files and refreshed HNSW structures.
 - Frees disk space and optimizes query read paths.
+
+`delete(id, hard=True)` hides a memory immediately from the API and SQL views; call `compact()` afterward to physically erase remaining Parquet payloads.

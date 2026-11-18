@@ -409,15 +409,9 @@ class EpochDB(EngineEpochDB):
             # (e.g. original + soft-delete tombstone). Prefer the newest by
             # created_at so soft-deletes and updates are not masked by older
             # parquet rows when epoch iteration order is arbitrary.
-            candidates = []
-            for epoch_id in self.cold_tier.get_all_epochs():
-                atoms = self.cold_tier.load_atom_metadata(epoch_id, [memory_id])
-                if atoms:
-                    candidates.append(atoms[0])
-            if not candidates:
+            newest = self._latest_cold_atom(memory_id)
+            if newest is None:
                 return None
-
-            newest = max(candidates, key=lambda a: a.created_at)
             if newest.metadata.get("_deleted"):
                 return None
             return Memory(newest)
@@ -442,12 +436,7 @@ class EpochDB(EngineEpochDB):
                 self.hot_tier.update_atom(atom)
                 self.wal.append("ADD", atom.to_dict())
             else:
-                old_atom = None
-                for epoch_id in self.cold_tier.get_all_epochs():
-                    atoms = self.cold_tier.load_atom_metadata(epoch_id, [memory_id])
-                    if atoms:
-                        old_atom = atoms[0]
-                        break
+                old_atom = self._latest_cold_atom(memory_id)
                 if old_atom:
                     new_text = text if text is not None else old_atom.payload
                     new_meta = old_atom.metadata.copy()
@@ -655,10 +644,19 @@ class EpochDB(EngineEpochDB):
             )
 
     def compact(self):
-        """Trigger deduplication and compaction in the Cold Tier."""
+        """Trigger deduplication and compaction in the Cold Tier.
+
+        Soft-deleted (`_deleted`) and hard-deleted (`deleted_atom_ids`) atoms
+        are physically removed from Parquet archives, including prior
+        `compacted_*` files. Hard delete remains a logical hide until this runs.
+        """
         with self._internal_lock:
             self.flush()
-            self.cold_tier.compact(self.current_epoch_id, self.kg_manager)
+            self.cold_tier.compact(
+                self.current_epoch_id,
+                self.kg_manager,
+                deleted_atom_ids=self.deleted_atom_ids,
+            )
 
     def stats(self) -> dict:
         """Retrieve system diagnostics stats."""
