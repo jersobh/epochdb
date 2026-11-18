@@ -1,11 +1,12 @@
 import os
 import json
+import uuid
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.dataset as ds
 import numpy as np
 import hnswlib
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Set, Iterable
 from collections import OrderedDict
 from epochdb.core.atom import UnifiedMemoryAtom, PayloadType, MemoryType, ScalarPayload, SeriesPayload, SeriesPoint, ConstraintPayload
 from epochdb.core.units import UnitRegistry
@@ -602,43 +603,58 @@ class ColdTier:
                 return atom_id, epoch_id
         return None
 
-    def compact(self, active_epoch_id: str, kg_manager: Any) -> Optional[str]:
+    def compact(
+        self,
+        active_epoch_id: str,
+        kg_manager: Any,
+        deleted_atom_ids: Optional[Set[str]] = None,
+    ) -> Optional[str]:
         """
-        Consolidates historical Parquet files, removes soft-deleted memories,
-        resolves supersession, and rebuilds vector index.
+        Consolidates historical Parquet files, removes soft- and hard-deleted
+        memories, resolves supersession, and rebuilds vector index.
+
+        Prior compacted_* archives are included so hard-deleted rows already
+        rewritten into a consolidated file can still be purged.
         """
         logger.info("Starting historical archive compaction...")
-        
+        hard_deleted = set(deleted_atom_ids or ())
+
         epochs = self.get_all_epochs()
-        # Exclude active epoch and any currently executing compacted epoch
-        epochs = [e for e in epochs if e != active_epoch_id and not e.startswith("compacted_")]
-        
+        # Exclude only the active epoch; fold prior compacted archives in so
+        # hard deletes and later soft-delete tombstones can rewrite them.
+        epochs = [e for e in epochs if e != active_epoch_id]
+
         if not epochs:
             logger.info("No historical epochs found to compact.")
             return None
-            
+
         all_atoms = []
         for epoch in epochs:
             try:
                 all_atoms.extend(self.load_epoch(epoch))
             except Exception as e:
                 logger.error(f"Failed to load epoch {epoch} during compaction: {e}")
-                
+
         if not all_atoms:
             logger.info("No atoms found in historical epochs.")
             return None
-            
-        # Filter out soft-deleted and superseded atoms.
+
+        # Filter out hard-deleted, soft-deleted and superseded atoms.
         # Process in reverse order (newest first) to easily identify superseded ones.
         all_atoms.sort(key=lambda a: a.created_at, reverse=True)
-        
+
         pruned_count = 0
         pruned_ids = []
         active_states = {}
         final_atoms = []
         seen_ids = set()
-        
+
         for atom in all_atoms:
+            if atom.id in hard_deleted:
+                pruned_count += 1
+                pruned_ids.append(atom.id)
+                continue
+
             if atom.id in seen_ids:
                 pruned_count += 1
                 pruned_ids.append(atom.id)
@@ -649,7 +665,7 @@ class ColdTier:
                 pruned_count += 1
                 pruned_ids.append(atom.id)
                 continue
-                
+
             from epochdb.core.predicates import NON_SUPERSEDING_PREDICATES
 
             is_superseded = False
@@ -675,40 +691,44 @@ class ColdTier:
                         is_superseded = True
                 else:
                     active_states[state_key] = atom
-                    
+
             if is_superseded:
                 pruned_count += 1
                 pruned_ids.append(atom.id)
             else:
                 final_atoms.append(atom)
-                
+
         # Restore chronological order
         final_atoms.reverse()
-        
-        logger.info(f"Compaction: loaded {len(all_atoms)} atoms, pruned {pruned_count} (deleted/superseded), keeping {len(final_atoms)}.")
-        
+
+        logger.info(
+            f"Compaction: loaded {len(all_atoms)} atoms, pruned {pruned_count} "
+            f"(hard-deleted/deleted/superseded), keeping {len(final_atoms)}."
+        )
+
         # Update database associations
         if pruned_ids:
             kg_manager.remove_associations(pruned_ids)
-            
+
         if not final_atoms:
             # Clean up all old files if nothing is left
             self._cleanup_epochs(epochs)
             return None
-            
-        # Write consolidated epoch
-        compacted_epoch_id = f"compacted_{int(time.time())}"
+
+        # Write consolidated epoch (include hex suffix so same-second compacts
+        # cannot collide with / delete the archive we just published).
+        compacted_epoch_id = f"compacted_{int(time.time())}_{uuid.uuid4().hex[:8]}"
         self.serialize_epoch(compacted_epoch_id, final_atoms)
-        
+
         # Update the epoch_id for the consolidated atoms in the global kg database
         kg_manager.update_epoch_ids(epochs, compacted_epoch_id)
-        
-        # Clean up old files
-        self._cleanup_epochs(epochs)
-        
+
+        # Clean up old files (never the newly written archive)
+        self._cleanup_epochs([e for e in epochs if e != compacted_epoch_id])
+
         # Clear local cache
         self._index_cache.clear()
-        
+
         logger.info(f"Compaction completed. Consolidated into {compacted_epoch_id}.")
         return compacted_epoch_id
         
@@ -846,14 +866,22 @@ class ColdTierAnalytics:
                 })
         return anomalies
 
-    def query_sql(self, sql: str) -> List[Dict[str, Any]]:
+    def query_sql(
+        self,
+        sql: str,
+        deleted_atom_ids: Optional[Iterable[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """Executes a SQL query over Cold Tier Parquet archives using DuckDB."""
-        table = self.query_sql_table(sql)
+        table = self.query_sql_table(sql, deleted_atom_ids=deleted_atom_ids)
         if table is None:
             return []
         return table.to_pylist()
 
-    def query_sql_table(self, sql: str) -> Optional[pa.Table]:
+    def query_sql_table(
+        self,
+        sql: str,
+        deleted_atom_ids: Optional[Iterable[str]] = None,
+    ) -> Optional[pa.Table]:
         """Executes a SQL query over Cold Tier Parquet archives using DuckDB, returning a PyArrow Table."""
         try:
             import duckdb
@@ -876,19 +904,36 @@ class ColdTierAnalytics:
 
         con = duckdb.connect()
         try:
-            glob_path = os.path.join(self.storage_dir, "*.parquet")
-            con.execute(f"CREATE VIEW cold_tier AS SELECT * FROM read_parquet('{glob_path}')")
-            rel = con.execute(sql)
-            return rel.to_arrow_table()
+            # DuckDB rejects prepared params in CREATE VIEW; escape the path
+            # (storage_dir is local) and bind hard-delete IDs via a relation.
+            glob_path = os.path.join(self.storage_dir, "*.parquet").replace("'", "''")
+            hard_deleted = list(deleted_atom_ids or ())
+            if hard_deleted:
+                tombstones = pa.table({"id": pa.array(hard_deleted, type=pa.string())})
+                con.register("_epochdb_hard_deleted", tombstones)
+                con.execute(
+                    "CREATE VIEW cold_tier AS "
+                    f"SELECT * FROM read_parquet('{glob_path}') "
+                    "WHERE id NOT IN (SELECT id FROM _epochdb_hard_deleted)"
+                )
+            else:
+                con.execute(
+                    f"CREATE VIEW cold_tier AS SELECT * FROM read_parquet('{glob_path}')"
+                )
+            return con.sql(sql).to_arrow_table()
         except Exception as e:
             logger.error(f"DuckDB query execution error: {e}")
             raise
         finally:
             con.close()
 
-    def query_sql_df(self, sql: str):
+    def query_sql_df(
+        self,
+        sql: str,
+        deleted_atom_ids: Optional[Iterable[str]] = None,
+    ):
         """Executes a SQL query over Cold Tier Parquet archives using DuckDB, returning a DataFrame if pandas is installed."""
-        table = self.query_sql_table(sql)
+        table = self.query_sql_table(sql, deleted_atom_ids=deleted_atom_ids)
         if table is None:
             return None
         try:

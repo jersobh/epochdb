@@ -152,9 +152,10 @@ print("Extracted Triples:", memory.triples)
 ## 6. Soft Deletions and Space Compaction
 
 ```python
-# Soft delete (retained in historical WAL for audits, but filtered from queries)
+# Soft delete (tombstone version; pruned from Parquet on compact)
 db.delete(atom_id, hard=False)
 
-# Permanent hard purge & Cold Tier Parquet compaction
+# Hard delete: logical hide now; physical Parquet purge on compact
+db.delete(atom_id, hard=True)
 db.compact()
 ```

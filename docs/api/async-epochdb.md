@@ -53,7 +53,7 @@ Asynchronously compiles a multi-hop subgraph.
 - **Returns**: `Graph`
 
 ### `await db.delete(atom_id, hard=False)`
-Asynchronously flags an atom as deleted or purges it.
+Asynchronously soft-deletes (`hard=False`) or logically hard-deletes (`hard=True`) an atom. Physical Parquet erasure for hard deletes requires a subsequent `compact()`.
 - **Returns**: `bool`
 
 ### `await db.close()`

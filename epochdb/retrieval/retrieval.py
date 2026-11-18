@@ -2,6 +2,7 @@ import concurrent.futures
 import logging
 import re
 import threading
+from dataclasses import replace
 from typing import List, Dict, Set, Optional, Any, Tuple, Callable
 
 import numpy as np
@@ -25,6 +26,29 @@ from epochdb.retrieval.precision_rerank import (
 from epochdb.retrieval.query_decompose import decompose_query, focus_query
 
 logger = logging.getLogger(__name__)
+
+_FILTER_OPS = frozenset({"$eq", "$ne", "$in", "$nin", "$gt", "$gte", "$lt", "$lte"})
+_ORDERED_FILTER_OPS = frozenset({"$gt", "$gte", "$lt", "$lte"})
+_COLLECTION_FILTER_OPS = frozenset({"$in", "$nin"})
+
+
+def _validate_filters(filters: Optional[Dict[str, Any]]) -> None:
+    """Raise ValueError for unsupported filter operators or operand shapes."""
+    if not filters:
+        return
+    for key, spec in filters.items():
+        if not isinstance(spec, dict):
+            continue
+        for op, val in spec.items():
+            if op not in _FILTER_OPS:
+                raise ValueError(
+                    f"Unsupported filter operator {op!r} for key {key!r}; "
+                    f"expected one of {sorted(_FILTER_OPS)}"
+                )
+            if op in _COLLECTION_FILTER_OPS and not isinstance(val, (list, tuple, set)):
+                raise ValueError(
+                    f"Filter operator {op} for key {key!r} requires a list, tuple, or set"
+                )
 
 
 def _mmr_select(
@@ -311,6 +335,20 @@ class RetrievalManager:
             constraints, merged_state, index_manager=self.hot_tier.quant_index
         )
 
+    def _is_search_eligible(
+        self,
+        atom: Optional[UnifiedMemoryAtom],
+        filters: Optional[Dict[str, Any]],
+    ) -> bool:
+        """True when an atom should participate in filtered/soft-delete-aware search."""
+        if atom is None:
+            return False
+        if atom.metadata.get("_deleted"):
+            return False
+        if filters and not self.match_filters(atom.metadata, filters):
+            return False
+        return True
+
     def search(
         self,
         query_emb: np.ndarray,
@@ -324,6 +362,7 @@ class RetrievalManager:
         cold_search_mode: Optional[str] = None,
         query_text: Optional[str] = None,
     ) -> List[UnifiedMemoryAtom]:
+        _validate_filters(filters)
         query_entities = set(query_entities) if query_entities else set()
         # Freeze the original query intent before graph expansion contaminates it.
         # get_topic_boost MUST score against this, not the expanded set.
@@ -382,12 +421,18 @@ class RetrievalManager:
                     q_part, top_k=max(cand_k, 64)
                 )
                 peak = hits[0][1] if hits else 0.0
-                if hits and hits[0][0] not in facet_winners:
-                    facet_winners.append(hits[0][0])
-                for rank, (atom_id, score) in enumerate(hits):
+                winner_picked = False
+                for atom_id, score in hits:
                     atom = self.hot_tier.atoms.get(atom_id)
                     if atom is None:
                         continue
+                    if (
+                        not winner_picked
+                        and atom_id not in facet_winners
+                        and self._is_search_eligible(atom, filters)
+                    ):
+                        facet_winners.append(atom_id)
+                        winner_picked = True
                     norm = float(score) / peak if peak > 1e-9 else 0.0
                     keyword_scores[atom_id] = max(
                         keyword_scores.get(atom_id, 0.0), norm
@@ -410,9 +455,15 @@ class RetrievalManager:
                     q_part, epochs=kw_epochs, top_k=max(cand_k, 64)
                 )
                 peak = hits[0][1] if hits else 0.0
-                if hits and hits[0][0].id not in facet_winners:
-                    facet_winners.append(hits[0][0].id)
-                for rank, (atom, score) in enumerate(hits):
+                winner_picked = False
+                for atom, score in hits:
+                    if (
+                        not winner_picked
+                        and atom.id not in facet_winners
+                        and self._is_search_eligible(atom, filters)
+                    ):
+                        facet_winners.append(atom.id)
+                        winner_picked = True
                     norm = float(score) / peak if peak > 1e-9 else 0.0
                     keyword_scores[atom.id] = max(
                         keyword_scores.get(atom.id, 0.0), norm
@@ -538,9 +589,7 @@ class RetrievalManager:
         seen_payloads: Set[str] = set()
 
         for atom, sim in all_candidates:
-            if atom.metadata.get("_deleted"):
-                continue
-            if filters and not self.match_filters(atom.metadata, filters):
+            if not self._is_search_eligible(atom, filters):
                 continue
             payload_key = str(atom.payload)
             if payload_key not in seen_payloads:
@@ -767,7 +816,7 @@ class RetrievalManager:
                 atom = candidates.get(eid, (None, 0.0))[0]
                 if atom is None:
                     atom = self.hot_tier.atoms.get(eid)
-                if atom is None:
+                if not self._is_search_eligible(atom, filters):
                     continue
                 pool_list.append(
                     (
@@ -823,7 +872,11 @@ class RetrievalManager:
             pin_budget = 2
             for eid in pin_ids:
                 atom = atom_by_id.get(eid) or self.hot_tier.atoms.get(eid)
-                if atom is None or eid in seen or eid in superseded_ids:
+                if (
+                    not self._is_search_eligible(atom, filters)
+                    or eid in seen
+                    or eid in superseded_ids
+                ):
                     continue
                 dens = float(dense_by_id.get(eid, 0.0))
                 lex = lexical_precision(focused, str(atom.payload))
@@ -864,6 +917,8 @@ class RetrievalManager:
         for atom, score in unique_results:
             if atom.id in superseded_ids:
                 continue
+            if not self._is_search_eligible(atom, filters):
+                continue
             if len(final_atoms) >= top_k:
                 break
 
@@ -895,8 +950,13 @@ class RetrievalManager:
         # --- 6. Context Window (Temporal Context Expansion) ---
         if context_window > 0 and final_atoms:
             chrono_cache = {}
+            result_atoms = []
             for atom in final_atoms:
-                ns = atom.namespace
+                # Attach neighbors on a per-query copy so stored hot-tier metadata
+                # is never mutated (and later update()/WAL cannot persist them).
+                result_atom = replace(atom, metadata=dict(atom.metadata))
+                result_atom.score = getattr(atom, "score", 0.0)
+                ns = result_atom.namespace
                 if ns not in chrono_cache:
                     all_atoms = list(self.hot_tier.atoms.values())
                     for epoch_id in self.cold_tier.get_all_epochs():
@@ -912,6 +972,8 @@ class RetrievalManager:
                             continue
                         if a.metadata.get("_deleted"):
                             continue
+                        if filters and not self.match_filters(a.metadata, filters):
+                            continue
                         if a.namespace == ns:
                             filtered.append(a)
                             seen_ids.add(a.id)
@@ -920,7 +982,7 @@ class RetrievalManager:
                 
                 ns_atoms = chrono_cache[ns]
                 try:
-                    idx = next(i for i, a in enumerate(ns_atoms) if a.id == atom.id)
+                    idx = next(i for i, a in enumerate(ns_atoms) if a.id == result_atom.id)
                     start_idx = max(0, idx - context_window)
                     end_idx = min(len(ns_atoms), idx + context_window + 1)
                     neighbors = ns_atoms[start_idx:end_idx]
@@ -936,9 +998,11 @@ class RetrievalManager:
                             "memory_type": neighbor.memory_type.value if neighbor.memory_type else "general",
                             "metadata": meta
                         })
-                    atom.metadata["context_neighbors"] = neighbor_dicts
+                    result_atom.metadata["context_neighbors"] = neighbor_dicts
                 except StopIteration:
                     pass
+                result_atoms.append(result_atom)
+            final_atoms = result_atoms
 
         return final_atoms
 
@@ -961,16 +1025,22 @@ class RetrievalManager:
                         if meta_val not in val: return False
                     elif op == "$nin":
                         if meta_val in val: return False
-                    elif op == "$gt":
-                        if not (meta_val > val): return False
-                    elif op == "$gte":
-                        if not (meta_val >= val): return False
-                    elif op == "$lt":
-                        if not (meta_val < val): return False
-                    elif op == "$lte":
-                        if not (meta_val <= val): return False
+                    elif op in _ORDERED_FILTER_OPS:
+                        try:
+                            if op == "$gt" and not (meta_val > val):
+                                return False
+                            if op == "$gte" and not (meta_val >= val):
+                                return False
+                            if op == "$lt" and not (meta_val < val):
+                                return False
+                            if op == "$lte" and not (meta_val <= val):
+                                return False
+                        except TypeError:
+                            return False
                     else:
-                        if meta_val != v: return False
+                        raise ValueError(
+                            f"Unsupported filter operator {op!r} for key {k!r}"
+                        )
             else:
                 if meta_val != v:
                     return False

@@ -189,7 +189,7 @@ def epochdb_delete(memory_id: str, hard: bool = False) -> str:
     
     Args:
         memory_id: The unique ID of the memory to delete.
-        hard: If True, permanently delete the memory. If False, soft-deletes.
+        hard: If True, logically hard-delete (physical Parquet purge on compact). If False, soft-delete.
     """
     db = get_db()
     db.delete(memory_id, hard=hard)
